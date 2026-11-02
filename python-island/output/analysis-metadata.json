@@ -1,0 +1,45 @@
+{
+  "metadataVersion": 1,
+  "pythonIslandVersion": "0.1.0",
+  "pythonVersion": "3.14.10",
+  "pytorchVersion": "2.14.1+cpu",
+  "demucsVersion": "4.1.0",
+  "numpyVersion": "2.3.4",
+  "ffmpegVersion": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+  "ffprobeVersion": "ffprobe version 6.1.1-3ubuntu5 Copyright (c) 2007-2023 the FFmpeg developers",
+  "runtime": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "logicalCpuCount": 16,
+    "threads": 4,
+    "device": "cpu",
+    "inputDurationSeconds": 12.0,
+    "decodeSeconds": 0.085,
+    "separationSeconds": 15.554,
+    "featureExtractionSeconds": 0.103,
+    "totalSeconds": 16.128,
+    "peakRssMiB": 1187.0
+  },
+  "model": {
+    "model": "htdemucs",
+    "demucsVersion": "4.1.0",
+    "checkpointSource": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+    "checkpointCache": "torch.hub/checkpoints/955717e8-8726e21a.th",
+    "checkpointBytes": 84141911,
+    "checkpointSha256": "8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4",
+    "device": "cpu",
+    "shifts": 0,
+    "sampleRateHz": 44100,
+    "stems": [
+      "drums",
+      "bass",
+      "vocals",
+      "other"
+    ]
+  },
+  "outputBytes": {
+    "feature-timeline.json": 168394,
+    "music-summary.json": 592,
+    "analysis-metadata.json": 1396
+  }
+}

@@ -9,7 +9,7 @@
 | M03 | 単色/グラデーション | 設定を描画へ反映 |
 | M04 | 4 Stem分離 | drums/bass/vocals/otherを生成 |
 | M05 | 特徴抽出 | Kick推定イベントとBass等の連続値を保存 |
-| M06 | Gemini生成 | 要約と利用可能featureからBlueprint生成 |
+| M06 | OpenAI GPT-6 Luna生成 | 要約と利用可能featureからBlueprint v1をResponses API Structured Outputsで生成（実API未検証） |
 | M07 | 検証 | 不正スキーマ・参照を拒否 |
 | M08 | 音響連動描画 | 再生時刻に同期して描画 |
 | M09 | 手動編集 | 効果の音源・強度・閾値・Attack/Releaseを変更 |

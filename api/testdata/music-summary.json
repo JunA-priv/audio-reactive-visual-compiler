@@ -1,0 +1,19 @@
+{
+  "summaryVersion": 1,
+  "durationMs": 12000,
+  "sourceAudio": {
+    "format": "fixture",
+    "codec": "fixture",
+    "sampleRateHz": 44100,
+    "channels": 2,
+    "fileBytes": 0
+  },
+  "analysis": {
+    "model": "fixture",
+    "device": "cpu",
+    "stemRms": { "drums": 0.18, "bass": 0.24, "vocals": 0.12, "other": 0.16 },
+    "estimatedKickCount": 2,
+    "featureSampleRateHz": 10,
+    "kickDetection": "Fixed non-audio test fixture."
+  }
+}

@@ -8,6 +8,7 @@
 - [TECH_STACK.md](TECH_STACK.md)
 - [API_CONTRACTS.md](API_CONTRACTS.md)
 - [BLUEPRINT_SPEC.md](BLUEPRINT_SPEC.md)
+- [VISUAL_EFFECT_ROADMAP.md](VISUAL_EFFECT_ROADMAP.md)
 - [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)
 - [DEPLOYMENT.md](DEPLOYMENT.md)
 - [TEST_STRATEGY.md](TEST_STRATEGY.md)
@@ -22,3 +23,6 @@
 最初にPROJECT_CONTEXT、DEVELOPMENT_RULES、CURRENT_STATEを読み、最新の関連報告、ルートCURRENT_TASK、関連仕様へ進む。
 
 - [作業報告](reports/2026-10-31-docs-bootstrap.md)
+- [フロント開発基盤・最小Renderer報告](reports/2026-10-31-frontend-bootstrap.md)
+- [Step 3 Visual Editor報告](reports/2026-10-31-visual-editor.md)
+- [Region割当・clip受け入れ調査](reports/2026-10-31-region-acceptance-review.md)

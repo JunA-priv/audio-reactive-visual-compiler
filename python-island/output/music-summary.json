@@ -1,0 +1,24 @@
+{
+  "summaryVersion": 1,
+  "durationMs": 12000,
+  "sourceAudio": {
+    "format": "wav",
+    "codec": "pcm_s16le",
+    "sampleRateHz": 16000,
+    "channels": 1,
+    "fileBytes": 384044
+  },
+  "analysis": {
+    "model": "htdemucs",
+    "device": "cpu",
+    "stemRms": {
+      "drums": 0.05013927011172384,
+      "bass": 0.04273935877461686,
+      "vocals": 2.8391903727838566e-05,
+      "other": 0.000221554523533205
+    },
+    "estimatedKickCount": 12,
+    "featureSampleRateHz": 100,
+    "kickDetection": "Drums-stem 30-150Hz spectral energy local peaks; estimated, not labeled truth."
+  }
+}

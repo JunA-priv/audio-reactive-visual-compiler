@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "timeUnit": "ms",
+  "durationMs": 12000,
+  "bassEnvelope": [
+    { "timeMs": 0, "value": 0.2 },
+    { "timeMs": 6000, "value": 0.8 },
+    { "timeMs": 12000, "value": 0.4 }
+  ],
+  "kickEvents": [1000, 6000]
+}

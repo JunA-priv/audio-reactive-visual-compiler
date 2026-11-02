@@ -142,6 +142,36 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
+# Frontend local outputs
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+
+# Python Island
+python-island/.venv/
+python-island/.python/
+python-island/.pytest_cache/
+python-island/.mypy_cache/
+python-island/.ruff_cache/
+python-island/**/__pycache__/
+python-island/src/*.egg-info/
+python-island/.python-dist.tar.gz
+python-island/.pip-audit-cache/
+python-island/.pip-audit-*.json
+.uv-cache/
+
+# Keep local source/stem/analysis data and demo media copies out of Git.
+/demo-assets/source/*
+!/demo-assets/source/README.md
+/demo-assets/stems/*
+!/demo-assets/stems/README.md
+/demo-assets/generated/*
+!/demo-assets/generated/README.md
+/frontend/public/demo/audio-reactive-silent-demo*.mp3
+/frontend/public/demo/demo[123].feature-timeline.json
+/frontend/public/demo/demo[123].feature-timeline-v2.json
+/frontend/public/demo/demo[123].frequency-spectrum-v1.json
+
 # Astro generated types
 .astro/
 

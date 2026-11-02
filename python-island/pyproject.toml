@@ -1,0 +1,57 @@
+[project]
+name = "audio-reactive-visual-compiler-python-island"
+version = "0.1.0"
+description = "Local CPU audio separation and feature timeline generation"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+  "demucs==4.1.0",
+  "numpy==2.3.4",
+  "torch==2.14.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy==1.18.2",
+  "pip-audit==2.9.0",
+  "pytest==9.0.3",
+  "ruff==0.14.4",
+]
+
+[project.scripts]
+python-island = "python_island.cli:main"
+kick-evaluation = "python_island.kick_evaluation:main"
+kick-annotator = "python_island.kick_annotation_server:main"
+
+[tool.uv]
+package = true
+required-version = "==0.8.12"
+python-downloads = "automatic"
+index-strategy = "first-index"
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["integration: uses the cached Demucs pretrained model and CPU inference"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+mypy_path = "src"
+packages = ["python_island"]
+ignore_missing_imports = true
