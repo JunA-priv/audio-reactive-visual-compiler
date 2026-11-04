@@ -1,56 +1,56 @@
-# Step 7k-11f — Ink Diffusion WebGL2 rendering
+# Step 7k-11f — Ink DiffusionのWebGL2描画
 
-**status: partial** — The Ink-only WebGL2 path and Canvas2D fallback are implemented, and automated frontend/Go checks pass. This environment has no browser, WebGL2 implementation, or standalone GLSL compiler, so shader compilation, GPU pixels, WebM appearance and real frame time remain unverified.
+**状態：一部完了** — Ink専用WebGL2経路とCanvas2D fallbackを実装し、自動Frontend/Go検査は成功しました。この環境にbrowser、WebGL2実装、単体GLSL compilerがないため、shader compile、GPU pixel、WebMの見た目、実際のframe時間は未確認です。
 
-## Result
+## 結果
 
-`ink-diffusion` now evaluates to one Ink render command. In a browser with WebGL2, its transparent offscreen surface is rendered by a WebGL2 fragment shader and composited at the same Effect draw-order position onto the existing Canvas2D output. Other Effects remain Canvas2D. Preview and WebM still use `renderEditorFrame`; WebM captures the same composited output canvas.
+`ink-diffusion`はInk render command 1つに評価されます。WebGL2対応browserでは透明offscreen surfaceをWebGL2 fragment shaderで描画し、既存Canvas2D出力上の同じEffect描画順位置へ合成します。他のEffectはCanvas2Dのままです。PreviewとWebMは引き続き`renderEditorFrame`を使い、WebMは同じ合成済み出力canvasをcaptureします。
 
-The shader evaluates a continuous density field per pixel. Five octave value noise warps the field over absolute time; three localized analytic vortex warps curl it; a narrow procedural ridge term creates fine ink filaments. Density controls alpha and inner pigment concentration. Global Gradient colors are sampled in the existing full-stage coordinate system and angle; Custom Color uses one pigment with density-based tonal variation. The shader produces premultiplied-alpha color for the transparent offscreen surface.
+shaderはpixelごとに連続密度fieldを評価します。5 octave value noiseで絶対時間に応じてfieldをwarpし、3つの局所analytic vortexでcurlを加え、狭いprocedural ridge項で細いink filamentを作ります。密度はalphaと内側pigment濃度を制御します。Global Gradientは既存の全stage座標系と角度から色をsampleします。Custom Colorでは1色のpigmentを密度に応じたtone変化で使います。shaderは透明offscreen surface用のpremultiplied-alpha colorを出力します。
 
-Existing `diffusionSpeed`, `flowStrength`, `turbulence`, `inkDensity`, `cloudScale`, and `responseTime` values are retained. Existing deterministic smoothed Binding response drives flow, vortex strength, density and expansion. `music.energy` remains the default Binding, and all seven source choices and Event/Continuous conversion remain unchanged. Always mode continues autonomous low-speed drift when the response is zero. Shader inputs are derived from Blueprint seed / Effect ID, Timeline response and absolute timestamp; no prior frame state is accumulated.
+既存の`diffusionSpeed`、`flowStrength`、`turbulence`、`inkDensity`、`cloudScale`、`responseTime`値を維持します。既存の決定的な平滑化Binding responseがflow、vortex強度、密度、拡張を制御します。既定Bindingは`music.energy`のままで、7種類のsource選択肢とEvent/Continuous変換も変わりません。responseが0でもAlways modeでは自律した低速driftを続けます。shader inputはBlueprint seed/Effect ID、Timeline response、絶対timestampから導出し、前frame状態を蓄積しません。
 
-## Resource and fallback behavior
+## resourceとfallbackの挙動
 
-- One transparent WebGL2 offscreen canvas is reused for each 2D output canvas. The surface is sized to the Ink Region in output pixels, including export scale, then resized when required.
-- At most four output-canvas renderer entries are retained. Least-recently-used eviction deletes the buffer/program and requests `WEBGL_lose_context` to release the context.
-- Context loss prevents default browser destruction behavior, falls back to Canvas2D while lost, and rebuilds shader resources after context restoration.
-- Missing WebGL2, context creation failure, shader compile/link failure, GL error, or `drawImage` failure falls back to the previous deterministic 12-path Ink geometry. This is local to Ink and does not stop other Effects or the application.
-- The destination renderer applies the existing Region clip and command opacity before compositing. Polygon clipping, Effect order and 2D output remain in the existing path.
+- 2D出力canvasごとに透明WebGL2 offscreen canvasを1つ再利用します。surfaceはexport scaleを含む出力pixel上のInk Regionに合わせてsizeを決め、必要に応じてresizeします。
+- 出力canvas用renderer entryは最大4つ保持します。Least-recently-used eviction時にbuffer/programを削除し、context解放のため`WEBGL_lose_context`を要求します。
+- context loss時はbrowserの既定破棄動作を抑止し、context失効中はCanvas2Dへfallbackします。context復旧後にshader resourceを再構築します。
+- WebGL2がない、context作成失敗、shader compile/link失敗、GL error、`drawImage`失敗の場合、従来の決定的なInk geometry 12 pathへfallbackします。これはInk内に限定され、他Effectやアプリを停止しません。
+- 合成前にdestination rendererが既存Region clipとcommand opacityを適用します。Polygon clip、Effect順、2D出力は既存経路のままです。
 
-## Performance and visual verification
+## 性能と視覚検証
 
-No GPU/FPS measurements are available. The shader evaluates per fragment over the Ink Region rather than the whole stage; actual GPU cost depends on browser, device, resolution, fill overlap and number of Ink Effects. The previous Canvas2D path remains available as the fallback, but the GPU route is the intended main path where initialization succeeds.
+GPU/FPS計測値はありません。shaderはstage全体ではなくInk Region上のfragmentごとに評価します。実際のGPU負荷はbrowser、device、解像度、fill重なり、Ink Effect数に依存します。従来のCanvas2D経路はfallbackとして残りますが、初期化が成功する環境ではGPU経路を主経路とします。
 
-No Chromium, Chrome, Firefox, Playwright/Puppeteer, or GLSL compiler is installed in the execution environment. Consequently the following are **not verified**: actual shader compile/link, real browser image, context loss/restore behavior, visual noise/mixing quality, demo1/demo3 appearance, GPU frame time/FPS, and WebM playback or pixel parity. Static shader-source checks and the fake Canvas tests are not treated as visual acceptance.
+実行環境にChromium、Chrome、Firefox、Playwright/Puppeteer、GLSL compilerはありません。そのため、実際のshader compile/link、browser画像、context loss/restore挙動、noise/色混合の見た目、demo1/demo3表示、GPU frame時間/FPS、WebM再生/pixel一致は**未確認**です。shader sourceの静的検査やfake Canvas testを視覚受け入れとは見なしません。
 
-## Compatibility
+## 互換性
 
-- No Blueprint, Feature Timeline, Project, or Cloud field/version changed.
-- No Go/API, Python Island, DB, Auth, Hosted, OpenAI API, or dependency changes.
-- Existing 17 Effect kinds, Ink's six parameters, seven Binding sources, Region, opacity, Gradient/Custom Color, Visibility and Audio Reactive semantics remain.
-- Existing Preview/WebM shared `renderEditorFrame` path remains.
+- Blueprint、Feature Timeline、Project、Cloud field/versionは変更していません。
+- Go/API、Python Island、DB、Auth、Hosted、OpenAI API、dependencyは変更していません。
+- 既存17 Effect kind、Inkの6 parameter、7種類のBinding source、Region、opacity、Gradient/Custom Color、Visibility、Audio Reactiveの意味は維持します。
+- 既存Preview/WebM共有`renderEditorFrame`経路を維持します。
 
-## Tests
+## Test
 
-- `cd frontend && npm test -- --run` — passed, 128 tests / 12 files.
-- `cd frontend && npm run typecheck` — passed.
-- `cd frontend && npm run lint` — passed.
-- `cd frontend && npm run build` — passed; Vite bundle 364.50 kB (111.77 kB gzip).
-- `GOCACHE=/tmp/arvc-step7k11f-go-cache go test ./internal/blueprint ./internal/projects` — passed.
-- `GOCACHE=/tmp/arvc-step7k11f-go-cache go vet ./...` — passed.
-- `git diff --check` — passed.
+- `cd frontend && npm test -- --run` — 12 file、128 test成功。
+- `cd frontend && npm run typecheck` — 成功。
+- `cd frontend && npm run lint` — 成功。
+- `cd frontend && npm run build` — 成功。Vite bundleは364.50 kB（gzip後111.77 kB）。
+- `GOCACHE=/tmp/arvc-step7k11f-go-cache go test ./internal/blueprint ./internal/projects` — 成功。
+- `GOCACHE=/tmp/arvc-step7k11f-go-cache go vet ./...` — 成功。
+- `git diff --check` — 成功。
 
-Frontend tests check shader source structure, density/noise/vortex/color uniforms, deterministic render-command payload and legacy fallback geometry/clip. These do not compile GLSL. Go tests are contract regression checks; Go source and schema were not changed.
+Frontend testはshader source構造、density/noise/vortex/color uniform、決定的render-command payload、旧fallback geometry/clipを検査しますが、GLSLをcompileしません。Go testはcontract回帰確認です。Go sourceとschemaは変更していません。
 
-## Changed files
+## 変更ファイル
 
-- `frontend/src/ink-webgl.ts` — Ink-only WebGL2 shader, context cache/lifecycle, resize, compositing and fallback result.
-- `frontend/src/renderer.ts` — one Ink shader command per Effect and dispatch through the shared render path, retaining prior Canvas paths as fallback.
-- `frontend/src/ink-webgl.test.ts` — static shader structure and unavailable-context fallback checks.
-- `frontend/src/editor-renderer.test.ts` — Ink shader payload, fallback, response, opacity, deterministic evaluation and clipping regression checks.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/VISUAL_EFFECT_ROADMAP.md` — status, architecture, test limits and pending browser acceptance.
+- `frontend/src/ink-webgl.ts` — Ink専用WebGL2 shader、context cache/lifecycle、resize、合成、fallback結果。
+- `frontend/src/renderer.ts` — EffectごとにInk shader commandを1つ使い、共有render経路へdispatch。従来Canvas pathはfallbackとして保持。
+- `frontend/src/ink-webgl.test.ts` — shader構造の静的検査とcontext利用不可時のfallback確認。
+- `frontend/src/editor-renderer.test.ts` — Ink shader payload、fallback、response、opacity、決定的評価、clipの回帰確認。
+- `CURRENT_TASK.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md`、`docs/ARCHITECTURE.md`、`docs/TEST_STRATEGY.md`、`docs/VISUAL_EFFECT_ROADMAP.md` — 状態、architecture、test制約、未完了browser受け入れ。
 
-## Remaining acceptance
+## 残りの受け入れ確認
 
-Run the Editor in a WebGL2 browser and verify shader compile/link, demo1/demo3 at quiet/weak/strong response, custom and global colors, rectangle and polygon clips, multiple Ink Effects interleaved with other Effects, resizing, context loss/restore, and WebM playback. Measure region-sized GPU frame time at normal and 2× export resolutions. If the GPU path fails, verify that the Canvas2D fallback remains visible and that non-Ink Effects continue rendering.
+WebGL2 browserでEditorを起動し、shader compile/link、demo1/demo3での無音/弱/強response、独自色/共通色、rectangle/polygon clip、他Effectと交互に置いた複数Ink Effect、resize、context loss/restore、WebM再生を確認します。通常/2倍export解像度でRegion単位のGPU frame時間を測定します。GPU経路が失敗した場合、Canvas2D fallbackが表示され、Ink以外のEffectが描画され続けることを確認します。

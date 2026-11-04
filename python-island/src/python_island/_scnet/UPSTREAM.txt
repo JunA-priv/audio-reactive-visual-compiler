@@ -1,0 +1,8 @@
+SCNet source: https://github.com/starrytong/SCNet
+Commit: 5d95bf96b19c3eede63248d171efeca8e3abb948
+License: MIT; the license text is included in __init__.py and LICENSE.
+Vendored inference modules: SCNet.py, separation.py, and apply.py.
+Local change: apply.py uses an explicit CPU device instead of Accelerate selection.
+The SCNet model config mapping is pinned in python_island.scnet_separation.
+The original upstream conf/config.yaml SHA-256 is recorded in runtime metadata.
+Checkpoint loading is implemented locally with weights_only=True and strict=True.

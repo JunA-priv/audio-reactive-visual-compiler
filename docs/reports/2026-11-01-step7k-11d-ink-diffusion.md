@@ -1,12 +1,12 @@
 # Step 7k-11d — Ink Diffusion
 
-**status: partial** — implementation and targeted automated checks pass. Full Go service tests are blocked by sandbox IPv6 loopback binding, and this environment did not provide a browser for visual/FPS acceptance.
+**状態：一部完了** — 実装と対象自動検査は成功しました。sandboxのIPv6 loopback bind制限でGo service test全体は未完了です。また、この環境にbrowserがなく、視覚/FPSの受け入れ確認はできませんでした。
 
-## Result
+## 結果
 
-Added `ink-diffusion` under the UI-derived `Ambient / Atmospheric` category. Four seeded cloud centers each render three translucent closed contours (12 Canvas path commands / Effect), with 40 contour points per path (480 contour points / Effect). Layered fills produce soft density and color overlap; low-frequency contour harmonics and seeded offsets deform continuously from absolute time. The existing smooth closed-path Canvas renderer, Region clip, gradient/custom color resolution, common opacity, draw order, and `renderEditorFrame` Preview/WebM path are reused.
+UIから導出される`Ambient / Atmospheric` categoryに`ink-diffusion`を追加しました。seed付きcloud centerを4つ用意し、それぞれ3本の半透明閉曲線を描画します（EffectごとにCanvas path command 12個）。各pathは輪郭点40個、Effectあたり合計480点です。重ね塗りで柔らかな密度と色の重なりを作り、低周波の輪郭harmonicとseed offsetを絶対時刻から連続的に変形させます。既存の滑らかな閉曲線Canvas renderer、Region clip、gradient/独自色解決、共通opacity、描画順、`renderEditorFrame`のPreview/WebM経路を再利用します。
 
-New Effects default to `music.energy`, `visibilityMode: always`, `audioReactive: true`, and these optional Blueprint v1 parameters:
+新規Effectの既定値は`music.energy`、`visibilityMode: always`、`audioReactive: true`です。以下のBlueprint v1 parameterを任意項目として追加しました。
 
 | Parameter | Range | Default |
 |---|---:|---:|
@@ -17,37 +17,37 @@ New Effects default to `music.energy`, `visibilityMode: always`, `audioReactive:
 | `cloudScale` | 0.1–2 | 0.5 |
 | `responseTime` | 0.5–10 seconds | 3 |
 
-The response table applies existing Binding threshold/attack/release processing, then a one-pole low-pass at `responseTime`, sampled at 20ms intervals. It is built from Timeline/settings and cached by Timeline identity and Binding parameters, with a maximum of 12,001 values per entry and 16 parameter variants per Timeline. This is deterministic for arbitrary seek order. Always mode keeps autonomous slow motion when silent or non-reactive; Triggered mode fades in/out from the smoothed source response and does not invent events.
+response tableには既存のBinding threshold/attack/release処理を適用した後、`responseTime`の1-pole low-passを20ms間隔でsampleします。Timeline/設定から構築し、Timeline identityとBinding parameterをkeyにcacheします。entryごとの最大値数は12,001、Timelineごとのparameter variantは16です。seek順序が任意でも結果は決定的です。Always modeでは無音または非reactive時も自律的な低速動作を維持します。Triggered modeは平滑化したsource responseに応じてfade in/outし、eventを捏造しません。
 
-## Compatibility
+## 互換性
 
-Blueprint, Feature Timeline, `.arvproj`, Project Document, and Cloud Envelope remain v1. The six Ink fields are optional and omission is accepted; Editor defaults and OpenAI normalization use the same values. Category is derived from Effect kind and is not serialized. No Timeline feature, dependency, Python, API, DB, Auth, hosted, 3D, or GPU changes were made. Existing Effects and seven source choices remain unchanged.
+Blueprint、Feature Timeline、`.arvproj`、Project Document、Cloud Envelopeはv1のままです。Inkの6 fieldは任意で、省略を受け付けます。Editorの既定値とOpenAI normalizationは同じ値を使います。CategoryはEffect kindから導出し、serialization対象ではありません。Timeline feature、dependency、Python、API、DB、Auth、Hosted、3D、GPUは変更していません。既存Effectと7種類のsource選択肢も変わりません。
 
-## Changed files
+## 変更ファイル
 
-- `frontend/src/editor-model.ts` — Ink Effect type and strict parameter validation.
-- `frontend/src/renderer.ts` — deterministic contour generation and cached response smoothing.
-- `frontend/src/VisualEditor.tsx` — category, defaults, music Binding, and parameter controls.
-- `frontend/src/editor-renderer.test.ts` — contours, response strength, seek determinism, opacity/gradient command, and Region clip checks.
-- `frontend/src/visual-editor.test.tsx` — all 18 categories/kinds and Ink editor defaults.
-- `frontend/src/project-file.test.ts`, `frontend/src/cloud-project.test.ts` — v1 persistence roundtrips.
-- `api/internal/blueprint/blueprint.go`, `api/internal/blueprint/blueprint_test.go` — Go kind/parameter validation.
-- `api/internal/service/openai.go`, `api/internal/service/openai_test.go` — strict schema, prompt, normalization defaults.
-- `api/internal/projects/document_test.go` — Project/Cloud v1 acceptance.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/BLUEPRINT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/VISUAL_EFFECT_ROADMAP.md` — current contract and remaining acceptance status.
+- `frontend/src/editor-model.ts` — Ink Effect型と厳密なparameter検証。
+- `frontend/src/renderer.ts` — 決定的な輪郭生成とresponse平滑化cache。
+- `frontend/src/VisualEditor.tsx` — category、既定値、music Binding、parameter controls。
+- `frontend/src/editor-renderer.test.ts` — 輪郭、response strength、seekの決定性、opacity/gradient command、Region clipを検証。
+- `frontend/src/visual-editor.test.tsx` — 18種類のcategory/kindとInk Editor既定値を検証。
+- `frontend/src/project-file.test.ts`、`frontend/src/cloud-project.test.ts` — v1 persistence roundtrip。
+- `api/internal/blueprint/blueprint.go`、`blueprint_test.go` — Go kind/parameter検証。
+- `api/internal/service/openai.go`、`openai_test.go` — strict schema、prompt、normalization既定値。
+- `api/internal/projects/document_test.go` — Project/Cloud v1受け入れ確認。
+- `CURRENT_TASK.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md`、`docs/BLUEPRINT_SPEC.md`、`docs/ARCHITECTURE.md`、`docs/TEST_STRATEGY.md`、`docs/VISUAL_EFFECT_ROADMAP.md` — 現行contractと受け入れ確認の残り。
 
-## Tests
+## Test
 
-- `npm test -- --run` — passed, 126 tests.
-- `npm run typecheck` — passed.
-- `npm run lint` — passed.
-- `npm run build` — passed.
-- `go test ./internal/blueprint ./internal/projects` — passed.
-- `go test ./internal/service -run 'TestOpenAI(Schema|InkDiffusion|NormalizesOpacity|NormalizesEnhancedParticle)'` — passed.
-- `go vet ./...` — passed.
-- `go test ./...` — existing `TestOpenAIResponsesRequestUsesStrictStructuredOutput` could not start `httptest.NewServer`: sandbox denied listen on `[::1]:0` (`operation not permitted`). No test was removed or disabled.
-- `git diff --check` — passed.
+- `npm test -- --run` — 126 test成功。
+- `npm run typecheck` — 成功。
+- `npm run lint` — 成功。
+- `npm run build` — 成功。
+- `go test ./internal/blueprint ./internal/projects` — 成功。
+- `go test ./internal/service -run 'TestOpenAI(Schema|InkDiffusion|NormalizesOpacity|NormalizesEnhancedParticle)'` — 成功。
+- `go vet ./...` — 成功。
+- `go test ./...` — 既存`TestOpenAIResponsesRequestUsesStrictStructuredOutput`が`httptest.NewServer`を起動できませんでした。sandboxが`[::1]:0`のlistenを拒否しました（`operation not permitted`）。testの削除や無効化はしていません。
+- `git diff --check` — 成功。
 
-## Remaining verification
+## 残りの検証
 
-Fake Canvas command tests verify bounded closed contour paths, nonzero alpha, shared gradient, Region clipping, audio response scaling, and repeated/out-of-order timestamp equality. They do not establish perceived fluid realism, color mixing quality, or real browser FPS. Browser visual review and WebM playback comparison remain unverified.
+Fake Canvas command testでは、範囲内の閉曲線path、0以外のalpha、共通gradient、Region clip、音声response scaling、同じtimestampを繰り返し/順序を変えて評価したときの一致を検証します。ただし、流体としての見た目、色混合の品質、実browserでのFPSは確認できません。browserによる視覚reviewとWebM再生比較は未検証です。

@@ -1,27 +1,27 @@
-# Step 7k-11h — Region occupancy normalization
+# Step 7k-11h — Region占有率の正規化
 
-**status: partial**
+**状態：一部完了**
 
-## Result
+## 結果
 
-Adjusted Renderer geometry so assigned Regions act as the primary layout bounds across all 18 Effects. No Blueprint, Feature Timeline, Project, or Cloud schema/version changed. Preview and WebM continue through the same `renderEditorFrame` path; existing absolute-time evaluation and Region clipping remain in place.
+18種類すべてのEffectで、割り当てたRegionを主なlayout境界として扱うようRenderer geometryを調整しました。Blueprint、Feature Timeline、Project、Cloudのschema/versionは変更していません。PreviewとWebMは引き続き同じ`renderEditorFrame`経路を通り、絶対時刻による既存評価とRegion clipを維持します。
 
-Ink Diffusion received the largest coverage adjustment. The WebGL2 shader's density envelope and expansion front now extend farther from the central core across the Region-local domain. The Canvas2D fallback uses a wider time/response-dependent reach for its core, satellite clouds, and outward branches. The existing central source, deterministic time/seed variation, response smoothing, color/opacity handling, and fallback lifecycle remain intact. The fallback geometry can reach the Region edges at strong response; actual shader pixel coverage was not measured.
+coverageの調整幅が最も大きいのはInk Diffusionです。WebGL2 shaderのdensity envelopeとexpansion frontを、Region内でcentral coreからより遠くまで広げます。Canvas2D fallbackではcore、satellite cloud、外向きbranchの範囲を時間/responseに応じて拡大します。既存central source、決定的なtime/seed変化、response平滑化、色/opacity処理、fallback lifecycleは維持します。強いresponseではfallback geometryがRegion端まで届きます。shader pixelの実coverageは測定していません。
 
-Other geometry changes:
+その他のgeometry変更：
 
-- Circular/radial: Pulse Scale now uses independent Region width/height dimensions; Rotation Movement's base rectangle is larger; Waveform Ring, Wave Ring, and Radial Bars use Region-relative horizontal and vertical radii; Ripple and Shockwave expand against both Region axes; circular Oscilloscope uses an elliptical Region-relative path.
-- Waveform and Spectrum: bars and lines retain Region-wide horizontal placement and use Region height for amplitude. Existing implementation already used the full Region dimensions, so no unrelated parameter changes were made.
-- Particles and transforms: Particle Trail's vertical reach was increased. Particles already distribute across the Region emitter width; Particle Burst already expands from its configured Region-relative origin and was left unchanged. Glow Brightness already targets the whole Region.
-- Ink: remains clipped by the common Region path, including polygon Regions.
+- 円形/radial：Pulse ScaleはRegionの幅/高さを別々に使用します。Rotation Movementの基準rectangleを拡大しました。Waveform Ring、Wave Ring、Radial BarsはRegion相対の横/縦radiusを使います。RippleとShockwaveはRegionの両軸に応じて拡張し、円形OscilloscopeはRegion相対の楕円pathを使います。
+- Waveform/Spectrum：barとlineはRegion幅全体への配置を維持し、振幅にはRegion高さを使います。既存実装がすでにRegion全体を使っていたため、無関係なparameterは変更していません。
+- Particles/transform：Particle Trailの縦方向到達範囲を広げました。Particlesは既にRegion emitter幅に分布し、Particle Burstも設定されたRegion相対originから拡張していたため変更していません。Glow Brightnessも既にRegion全体を対象としていました。
+- Ink：polygon Regionを含め、共通Region経路で引き続きclipします。
 
-## Tests
+## Test
 
-Added a renderer test that exercises all 18 Effect kinds with both a rectangle and polygon Region. It checks generated geometry width/height against the assigned Region and confirms that the common Region clip path is applied. Existing Ink tests continue to cover deterministic repeated timestamps, out-of-order evaluation, response variation, and fallback bounds. These tests inspect commands and geometry, not rasterized pixels.
+18種類すべてのEffectをrectangleとpolygon両方のRegionで動作させるrenderer testを追加しました。生成geometryの幅/高さが割り当てたRegionに合うこと、共通Region clip経路が適用されることを確認します。既存Ink testでは、同じtimestampの決定性、順序を変えた評価、response変化、fallback範囲を引き続き検証します。これらはcommand/geometryを確認し、raster pixelは確認しません。
 
-Passed:
+成功：
 
-- `npm test -- --run` — 12 files, 129 tests
+- `npm test -- --run` — 12 file、129 test
 - `npm run typecheck`
 - `npm run lint`
 - `npm run build`
@@ -29,15 +29,15 @@ Passed:
 - `go vet ./...`
 - `git diff --check`
 
-## Compatibility and limits
+## 互換性と制約
 
-No saved fields, defaults, validators, OpenAI schema, or version numbers changed. Existing Region clipping, color modes, opacity, binding evaluation, deterministic seeking, and shared Preview/WebM renderer path are preserved.
+保存field、既定値、validator、OpenAI schema、version番号は変更していません。既存Region clip、color mode、opacity、Binding評価、決定的seek、Preview/WebM共有renderer経路を維持します。
 
-No browser executable was available. WebGL2 shader compile/link, actual Ink pixel coverage, polygon raster clipping, browser performance/FPS, and WebM pixel parity remain unverified. Consequently this report records automated geometry improvement, not visual acceptance.
+browser executableはありませんでした。WebGL2 shader compile/link、実際のInk pixel coverage、polygon raster clip、browser性能/FPS、WebM pixel一致は未確認です。したがって本reportが示すのは自動geometry改善であり、視覚受け入れではありません。
 
-## Changed files
+## 変更ファイル
 
-- `frontend/src/renderer.ts` — Region-relative geometry sizing and Ink Canvas2D reach.
-- `frontend/src/ink-webgl.ts` — wider Ink density envelope and expansion front.
-- `frontend/src/editor-renderer.test.ts` — rectangle/polygon coverage regression across all 18 Effects.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/VISUAL_EFFECT_ROADMAP.md` — current implementation and visual acceptance status.
+- `frontend/src/renderer.ts` — Region相対geometry sizeとInk Canvas2Dの到達範囲。
+- `frontend/src/ink-webgl.ts` — Ink density envelopeとexpansion frontを拡張。
+- `frontend/src/editor-renderer.test.ts` — 18種類すべてのEffectに対するrectangle/polygon coverage回帰確認。
+- `CURRENT_TASK.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md`、`docs/ARCHITECTURE.md`、`docs/TEST_STRATEGY.md`、`docs/VISUAL_EFFECT_ROADMAP.md` — 実装状況と視覚受け入れ状況。

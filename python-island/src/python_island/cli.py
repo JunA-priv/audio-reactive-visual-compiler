@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 from python_island.errors import AnalysisError
 from python_island.features import KICK_GATE_MODES
 from python_island.pipeline import run_analysis
+from python_island.separation import ENGINE_SCNET_STANDARD
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,6 +33,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="hard",
         help="Kick candidate gate strictness (default: hard)",
     )
+    engine_choices = [ENGINE_SCNET_STANDARD]
+    if importlib.util.find_spec("demucs") is not None:
+        engine_choices.append("htdemucs")
+    parser.add_argument(
+        "--engine",
+        choices=engine_choices,
+        default=ENGINE_SCNET_STANDARD,
+        help="Separation engine (SCNet standard by default; Demucs is development-only)",
+    )
     return parser
 
 
@@ -43,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             threads=args.threads,
             stems_dir=args.stems_dir,
             kick_gate_mode=args.kick_gate_mode,
+            engine=args.engine,
         )
     except (AnalysisError, OSError, ValueError) as error:
         print(f"python-island: {error}", file=sys.stderr)

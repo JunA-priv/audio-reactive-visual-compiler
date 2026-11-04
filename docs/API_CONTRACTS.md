@@ -58,19 +58,42 @@ ready確定は利用者JWTのPostgREST RPCではなく、Go APIから専用Postg
 
 ## Step 7j authenticated local audio analysis
 
-状態：local-onlyでDECIDED・実装済み。HostedでのCPU実行は対象外。`AUDIO_ANALYSIS_ENABLED=true`を明示した場合だけrouteを登録する。Go API自体はloopbackにbindし、local Supabase issuerの既存JWT validatorを適用する。既定値は無効。
+状態：local実装済み。Hosted API実行にはStep 7k-41 trust設定、専用quota migration/role、operator設定が必要だがHosted integrationは未検証。`AUDIO_ANALYSIS_ENABLED=true`を明示した場合だけrouteを登録し、JWT validatorと専用Audio Analysis DB storeが起動時に必要。DB global controlとJWT subject別entitlement/quotaはdefault-deny。process flagとDB `enabled`の両方を有効にする。
 
 | Method / path | Success | 主な拒否 |
 |---|---:|---|
-| `POST /api/v1/audio/analyze` | 200 `{featureTimeline, musicSummary, analysisMetadata}` | 401, 413, 415, 422, 429, 499, 502, 504, 500 |
+| `POST /api/v1/audio/analyze` | 200 `{featureTimeline, musicSummary, analysisMetadata}` | 401, 403, 413, 415, 422, 429, 499, 502, 503, 504, 500 |
+
+Admission順序はJWT→DB atomic entitlement/quota reservation→multipart body/WAV検証→解析開始直前のcharged transition→結果に応じたsettlement。未entitled=403、quota/concurrency/burst=429、kill switch/DB障害=503。解析開始前のinvalid input/upload cancelはreservationをreleaseしquotaを消費しない。SCNet開始後のsuccess/failure/cancel/timeoutは1 charged attemptとしてsettleする。DB RPC/state変更失敗時は解析を開始しないか、結果を200にせず503 fail-closedとする。Reservation leaseは既定15分（DB policyで60〜1800秒）、次回reserve時に期限切れupload reservationをreleaseし期限切れrunningをcharged expiredとして回復する。Usage ledgerにはuser UUID、状態、時刻、安全なerror codeだけを保存し、media/JWT/filename/payloadは保存しない。finalized rowは90日より古い次回reserve時に削除する。
 
 Requestは`multipart/form-data`内の`audio` fileと、任意の`kickGateMode` text field（`off|soft|middle|hard`）を受け付ける。`kickGateMode`省略時は`hard`で、従来のKick採否条件と同じ。未定義値、重複field、その他のpartは拒否する。clientはBrowserで選択区間を44.1 kHz stereo PCM16 WAVへcropし、そのclipのみをBearer user JWT付きで送信する。Request全体16 MiB、実測clip 0より大きく60秒以下、PCM signed 16-bit little-endian、44.1 kHz、2 channelを要求する。全API processで同時処理は1件、timeoutは600秒。拒否エラーは`{ "error": { "code": "...", "message": "..." }}`で、外部向けにpath・process stderrを返さない。
 
-Goは0700 private temporary directory、0600入力fileを使い、固定設定済みPython Island executableへshellなしの固定argv（input path、`--output-dir`、`--threads 4`、`--kick-gate-mode`と検証済み値）で子プロセスを起動する。Python output JSON file各々へbyte上限（Feature Timeline JSONは8 MiB）を適用し、Summary/Timelineを既存Go validatorで検証したうえでmetadata version、htdemucs/CPU、44.1kHz/stereo、実fileBytes、clip duration一致を検証する。この内部結果上限は有効な60秒Timelineの実測出力に合わせたもので、外部multipart request上限16 MiBとは別である。process groupをtimeout/cancelで終了し、全経路でtemp directoryを削除する。ResultのTimeline時刻原点は選択clip先頭=0ms。分析APIはAI生成を行わない。Frontendはその後、既存`POST /api/v1/blueprints/generate`へclip由来Summary/Timelineを送るため、AI entitlement・quota・Idempotencyは既存契約どおり適用される。
+Goは0700 private temporary directory、0600入力fileを使い、固定設定済みPython Island executableへshellなしの固定argv（input path、`--output-dir`、`--threads 4`、`--kick-gate-mode`と検証済み値）で子プロセスを起動する。engine引数は渡さずPython Island既定の`scnet_standard`を使う。Python output JSON file各々へbyte上限（Feature Timeline JSONは8 MiB）を適用し、Summary/Timelineを既存Go validatorで検証したうえでmetadata version、`analysis.model`（`scnet_standard`標準または開発用`htdemucs`）/CPU、44.1kHz/stereo、実fileBytes、clip duration一致を検証する。レスポンスのJSON fields/typesは維持し、model識別値の許容集合のみ拡張する。この内部結果上限は有効な60秒Timelineの実測出力に合わせたもので、外部multipart request上限16 MiBとは別である。process groupをtimeout/cancelで終了し、全経路でtemp directoryを削除する。ResultのTimeline時刻原点は選択clip先頭=0ms。分析APIはAI生成を行わない。Frontendはその後、既存`POST /api/v1/blueprints/generate`へclip由来Summary/Timelineを送るため、AI entitlement・quota・Idempotencyは既存契約どおり適用される。
 
 `/app`の既存音源形式/32 MiB source limitを維持し、確定前はsource fileを送信せず、解析成功時だけcrop clipをEditor audio stateへcommitする。Project/Cloud ProjectとWebMは同じclipとTimelineを使う。source offsetは永続化しない。`/demo`は固定full-length asset/Timelineのままで、分析routeを呼ばない。
 
 FACT（Step 7k-12）：`/app` Previewのhidden AudioElementはEditorへcommitされたcrop WAVを再生し、その`currentTime`をFeature Timeline/Rendererの時刻として読む。Play/Pause/Stop/Seekは同じclip-relative 0..duration時間軸を使う。元source MP3はrange selection UIのpreviewだけに使い、非0秒の選択開始offsetはcrop時に除去されTimelineへ持ち込まない。`/local`の合成時計と`/demo`の固定音源時計は維持する。
+
+## Step 7k-50c〜50e async audio jobs (partial, Hosted disabled)
+
+`AUDIO_ANALYSIS_JOBS_ENABLED=true`で有効。`AUDIO_ANALYSIS_TRANSPORT=local`（既定）はDB polling Worker、`cloud_tasks`は明示設定時のみoutbox/Cloud Tasks HTTP配送を使う。必要migrationは050b/050d/050e。Hosted/Cloud Run実接続は未検証であり、この契約のみでHosted運用可能とは扱わない。
+
+| Method / path | Success | 主な拒否 |
+|---|---:|---|
+| `POST /api/v1/audio/jobs` | 202 `{jobId,state}`; existing idempotency key=200 | 400, 401, 403, 409, 413, 415, 422, 429, 503 |
+| `GET /api/v1/audio/jobs/{jobId}` | 200 `{jobId,state,queuePosition,errorCode,cancelRequested}` | 401, 404, 503 |
+| `GET /api/v1/audio/jobs/{jobId}/result` | 200 existing Analyze payload | 401, 404, 409, 503 |
+| `DELETE /api/v1/audio/jobs/{jobId}` | 200 status after queued cancel or running cancel request | 401, 404, 503 |
+
+受付にはJWT subject、`Idempotency-Key`（1〜128文字）、multipart clipを要求する。同じkeyで音源/Gateが変わると409。DB保存時は音源＋GateをSHA-256検証し、owner UUID predicateを全read/cancel/result RPCへ適用する。queue上限20 jobs/320 MiB、user待機上限2、音源上限16 MiB、15分待機期限、24時間job/result保持。terminal状態で入力byteを消去。eligible FIFO（created_at/job_id順）、strict FIFOは保証しない。
+
+ローカルWorkerはDB `claim`をpollし、processあたり1解析。Cloud Tasks Workerは`POST /internal/tasks/audio-analysis`でjob ID/generationのみを受け取り、PostgreSQL exact-job claim、attempt fencing、DB全体2/user 1制限を再確認する。worker taskとScheduler wake endpointはGoogle OIDC issuer/audience/emailを検証する。Cloud Tasks enqueueはtransactional outboxを使い、deterministic task nameでduplicate createを吸収する。同期`POST /api/v1/audio/analyze`は維持。Frontendは`VITE_AUDIO_ANALYSIS_JOBS_ENABLED=true`で非同期APIへ切替え、sessionStorageのjob IDから状態/resultを復元し、source file変更/中断時にcancelを送る。
+
+非同期jobはclaim attemptごとにfenceし、quota ledgerはjobごとに一行だけ関連付ける。解析開始前のcancel/retryは同じreservationを再利用し、started後の失敗/retryも元の`started_at`を維持して成功利用回数を一回に限定する。開始後の失敗は最終retryまで一回消費、開始前キャンセルは未消費。worker lease expiry後はattempt番号を進め、古いattemptのquota settle/job finish RPCを拒否する。quota成功settle後にjob finish前のクラッシュが起きた場合、同じ一行を再活性化して解析をやり直すため、DB quota二重計上は防ぐがSCNetのexactly-once実行や失われた解析結果の復元は保証しない。結果未確定時の再推論は可能。
+
+Cloud Tasks transportは`AUDIO_ANALYSIS_CLOUD_TASKS_ENABLED=true`も必要とし、未設定時は起動を拒否する。現在のenv例とCloud Run templateはfalseのため配送機能を有効化しない。CI Production workflowはreadiness専用で、DB/Cloud接続・適用・deployをしない。
+
+Step 7k-50eの追加構成は[Cloud Run Worker template](../deploy/cloud-run/README.md)を参照。migration 050eは未適用・隔離DB検証前。Cloud Tasks service, Scheduler, IAM, Cloud Run serviceは未作成。テンプレートは未デプロイで、Hosted運用は無効のまま扱う。
 
 ## Step 7g Blueprint generation and AI budget (local-only)
 

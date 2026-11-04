@@ -1,68 +1,68 @@
-# Step 7k-21 — Acoustic Drum Kick Detection Investigation
+# Step 7k-21 — アコースティックドラムのKick検出調査
 
-**status: partial (read-only investigation complete; acoustic real-world accuracy is unverified)**
+**状態：一部完了（read-only調査は完了。実アコースティック音源での精度は未検証）**
 
-## Summary
+## 概要
 
-The current Kick detector operates on the mixed Demucs `drums` stem, not an isolated Kick stem. It combines a low-frequency rise score with a sub/body ratio and a fast-decay gate. This was intentionally made conservative in Step 7k-11b to suppress Snare, Tom, and sustained Bass false positives. The available real-song stems do not have manual Kick labels and are not documented as acoustic drum recordings. Consequently they cannot establish that the detector misses acoustic Kicks, nor support precision/recall estimates.
+現行Kick detectorは、分離されたKick stemではなくDemucsの混合`drums` stemを処理します。低周波上昇score、sub/body比、速い減衰gateを組み合わせています。Snare、Tom、持続Bassの誤検出を抑えるため、Step 7k-11bで意図的に保守的な設定にしました。利用可能な実曲stemには手作業のKick labelがなく、アコースティックドラム録音であるとの記録もありません。そのため、検出器がアコースティックKickを見逃すことの確認やprecision/recallの推定には使えません。
 
-No application code, tests, fixtures, generated analysis data, or public contracts were changed during this read-only investigation. This report is the only new file.
+このread-only調査ではアプリcode、test、fixture、生成解析data、公開contractを変更していません。新規fileは本reportのみです。
 
-## Current detection path
+## 現行の検出経路
 
-1. Demucs produces four stems; `extract_features()` passes `stems["drums"]` to `detect_kicks()`.
-2. The detector averages channels to mono and computes 2048-sample FFT frames at a 10ms hop (about 46.4ms per frame at 44.1kHz).
-3. Per-frame RMS-like energies are measured in 35–80Hz (`sub`), 35–120Hz (`low`), and 100–250Hz (`mid`).
-4. A nonnegative `low` rise is compared with the preceding 500ms median plus a floor. The score is `log1p(rise / baseline) × sub/(sub+mid)`.
-5. Candidate peaks must pass all of these gates:
-   - adaptive score threshold: `max(p85(score) × 0.18, 0.08)`;
-   - low-band threshold: `p65(low) × 0.12`;
-   - sub/body ratio at least `0.70`;
-   - low-band energy 80ms later no more than 50% of candidate-frame energy;
-   - local-maximum test and 120ms candidate merge interval.
-6. Candidate strengths are normalized by the candidate-score p99 and clamped to 0..1. Event times are frame index × 10ms; there is no explicit onset-time correction.
-7. `extract_features()` emits sorted millisecond `kickEvents` and aligned `kickEventStrengths` in Feature Timeline v1.
+1. Demucsが4 stemを生成し、`extract_features()`は`stems["drums"]`を`detect_kicks()`へ渡します。
+2. detectorはchannelをmonoへ平均し、10ms hopで2048 sample FFT frameを計算します（44.1kHzで約46.4ms/frame）。
+3. frameごとに35〜80Hz（`sub`）、35〜120Hz（`low`）、100〜250Hz（`mid`）のRMS相当energyを計測します。
+4. 0以上の`low`上昇量を、直前500msのmedianとfloorに比較します。scoreは`log1p(rise / baseline) × sub/(sub+mid)`です。
+5. 候補peakは以下すべてのgateを通過する必要があります。
+   - adaptive score threshold：`max(p85(score) × 0.18, 0.08)`。
+   - low-band threshold：`p65(low) × 0.12`。
+   - sub/body比が`0.70`以上。
+   - 80ms後のlow-band energyが候補frame energyの50%以下。
+   - local maximum検査、および候補をまとめる120ms間隔。
+6. candidate strengthはcandidate scoreのp99で正規化し、0〜1にclampします。event時刻はframe index × 10msで、明示的なonset時刻補正はありません。
+7. `extract_features()`はFeature Timeline v1に、sort済みmillisecond単位の`kickEvents`と対応する`kickEventStrengths`を出力します。
 
-The FFT windows overlap in time and the event timestamp is the frame start, while each frame includes samples after that timestamp. This establishes temporal smearing and quantization, but not a fixed onset bias. A labeled onset set is needed to measure the actual offset distribution.
+FFT windowは時間的に重なり、event timestampはframe開始時刻ですが、各frameにはその後のsampleも含まれます。そのため時間方向のぼけと量子化はありますが、固定したonset biasがあるとは限りません。実際のoffset分布を測るにはonset label付きdataが必要です。
 
-## Confirmed facts and causes to investigate
+## 確認済み事項と今後調べる原因
 
-### Confirmed
+### 確認済み
 
-- Detection uses only the Demucs mixed `drums` stem; the code does not receive a dedicated Kick stem.
-- The detector requires energy concentrated in 35–80Hz relative to 100–250Hz, plus a strong rise and a quick 80ms decay. Each is a hard rejection gate.
-- Strength is relative to the detected candidates in the same clip, not calibrated to a universal physical loudness.
-- Step 7k-11b synthetic labeled tests cover impulse/weak/double Kicks, Kick+Snare, Snare-only, 115Hz Tom-only, sustained Bass, silence, and timing checks. They demonstrated good performance for those constructed cases, not for acoustic recordings.
-- Existing demo stems produced 191, 116, and 104 events with the current detector, versus 217, 259, and 220 with the legacy detector. These counts are diagnostic only; the source assets have no manual onset labels and their documentation does not classify them as acoustic recordings.
-- The current default bindings use `strength=0.9`, `threshold=0.1`, `attackMs=60`, `releaseMs=260`. These are separate from detector thresholds and are configurable per Effect.
+- 検出にはDemucsの混合`drums` stemだけを使い、codeは専用Kick stemを受け取りません。
+- detectorは100〜250Hz帯に対して35〜80Hz帯へ集中したenergy、強い立ち上がり、80msでの速い減衰を要求します。それぞれが強制的な棄却gateです。
+- strengthは同じclip内で検出した候補間の相対値であり、普遍的な物理音量には校正されていません。
+- Step 7k-11bのsynthetic label付きtestはimpulse/weak/double Kick、Kick+Snare、Snare-only、115Hz Tom-only、持続Bass、無音、時刻を確認します。合成したcaseでの動作を示したもので、アコースティック録音での性能を示すものではありません。
+- 既存Demo stemでは現行detectorが191、116、104 event、旧detectorが217、259、220 eventを出しました。この件数は診断用に限られます。source assetには手作業のonset labelがなく、文書上もアコースティック録音とは分類されていません。
+- 現行の既定Bindingは`strength=0.9`、`threshold=0.1`、`attackMs=60`、`releaseMs=260`です。これはdetector thresholdとは別設定で、Effectごとに変更できます。
 
-### Plausible, not yet verified for acoustic audio
+### アコースティック音源では未検証だが可能性のある事項
 
-- An acoustic Kick whose useful energy is concentrated above 80Hz, or whose drum-stem mix has substantial mid-band bleed, may fail the 0.70 sub/body ratio.
-- A Kick with a longer low-frequency tail may fail the 80ms / 50% decay gate.
-- Soft hits may fail the relative low-band floor or adaptive score gate, especially when the stem has louder events elsewhere.
-- Demucs may attenuate or distribute some Kick energy across stems; this detector cannot recover information absent from its `drums` input.
+- 有効なenergyが80Hzより上に集中するアコースティックKickや、drum stemにmid-band漏れが多い場合は、sub/body比0.70を満たさない可能性があります。
+- 低周波tailが長いKickは80ms/50%減衰gateを満たさない可能性があります。
+- 弱いhitは、特にstem内の別位置に大音量eventがある場合、相対low-band floorまたはadaptive score gateで棄却される可能性があります。
+- DemucsがKick energyを減衰させたり複数stemへ分散したりする可能性があります。このdetectorは`drums`入力にない情報を復元できません。
 
-These are hypotheses derived from the implemented gates. No specific miss has been confirmed because no labeled acoustic recording was available for comparison.
+これらは実装済みgateから導いた仮説です。比較用のlabel付きアコースティック録音がないため、具体的な見逃しは確認されていません。
 
-## Detector versus Effect response
+## DetectorとEffect応答の違い
 
-The signal path has two distinct stages:
+信号経路は次の2段階に分かれます。
 
-1. **Detector:** `kickEvents` and per-event normalized strengths are produced by Python and carried in Timeline v1.
-2. **Binding/Effect:** Renderer `rawSourceValue()` selects the latest Kick events and exponentially decays their strength using `max(60ms, releaseMs)`. `evaluateBinding()` then applies the Binding threshold, attack/release follower, and Binding strength. Event-based Effects such as Particle Burst and Shockwave also apply `boundFeature()` to each event; values at or below `binding.threshold` contribute zero.
+1. **Detector：** Pythonが`kickEvents`とeventごとの正規化strengthを生成し、Timeline v1に格納します。
+2. **Binding/Effect：** Rendererの`rawSourceValue()`は最新Kick eventを選び、`max(60ms, releaseMs)`を使ってstrengthを指数減衰させます。続いて`evaluateBinding()`がBinding threshold、attack/release follower、Binding strengthを適用します。Particle BurstやShockwaveなどevent-based Effectも各eventへ`boundFeature()`を適用し、`binding.threshold`以下の値は0になります。
 
-Therefore, a weak visual response does not by itself prove a missed detector event. It can result from no event, an event strength at/below the Binding threshold, the configured Binding strength/envelope, or Effect-specific influence/visibility/opacity. In the Step 7k-20 initial configuration, Spectrum Bars and Ink Diffusion bind to `music.energy` (`Song`); they do not consume `kick.events` by default. Kick-specific response requires an Effect/source configuration that actually selects Kick.
+したがって、視覚応答が弱いだけではdetectorがeventを見逃した証拠になりません。eventがない、event strengthがBinding threshold以下、設定されたBinding strength/envelope、Effect固有のinfluence/visibility/opacityが原因の可能性があります。 Step 7k-20の初期設定ではSpectrum BarsとInk Diffusionは`music.energy`（`Song`）にBindingされ、既定では`kick.events`を使いません。Kick固有の応答には、Kickを選ぶEffect/source設定が必要です。
 
-The most useful next diagnosis is to inspect, at the same timestamp, whether a Timeline Kick event exists, its strength, and the resulting Binding value. This keeps detector misses separate from visual-response tuning without changing the public contract.
+次の診断では同じtimestampでTimeline Kick eventの有無、strength、最終Binding値を確認するのが有効です。公開contractを変えず、detector見逃しと視覚応答調整を切り分けられます。
 
-## Unlabeled local material review
+## ラベルのないローカル素材の確認
 
-The three existing local demo stems and their generated Timelines were reviewed through the prior Step 7k-11b comparison report and asset metadata. They are documented as user-created Suno tracks for demo purposes; no acoustic-drum classification, hand-marked onset times, or listening-based acceptance labels are present. Their event counts and strength distributions cannot be interpreted as recall, precision, or evidence of acoustic Kick performance. No external data was sent and no new analysis output was written.
+既存のローカルDemo stem 3つと生成Timelineを、前回Step 7k-11b比較reportとasset metadataで確認しました。Demo目的のユーザー作成Suno trackと記録されており、アコースティックドラム分類、手作業のonset時刻、聴取に基づく受け入れlabelはありません。event件数やstrength分布をrecall/precisionやアコースティックKick性能の証拠として解釈できません。外部data送信や新規解析出力はありません。
 
-**Detection misses / false positives / timing:** not quantifiable on these songs. The synthetic test set has labels and passes its stated cases, but is not a substitute for acoustic recordings.
+**見逃し/誤検出/時刻精度：** これらの曲では定量化できません。synthetic test setにはlabelがあり所定caseに通りますが、アコースティック録音の代わりにはなりません。
 
-## Candidate approaches
+## 対応案
 
 | Approach | Fit to current implementation | Main risk / required evidence |
 |---|---|---|
@@ -71,15 +71,15 @@ The three existing local demo stems and their generated Timelines were reviewed 
 | Low-band spectral flux/onset path | Could complement the existing rise score and capture attacks with different spectra | A second permissive path can increase false positives; it needs a labeled ablation and the same Timeline output contract. |
 | Use drum stem plus original mix | Original audio is already available to feature extraction | More bleed and duplicate candidates; requires cross-source matching and labeled tests. It is a broader change than changing a detector gate. |
 
-## Recommended minimal next-step plan
+## 推奨する最小限の次の手順
 
-Do not change the detector thresholds based on the current material. The evidence does not identify which gate causes acoustic misses, and lowering the gates would undermine the false-positive protections that motivated Step 7k-11b.
+現状の素材だけを根拠にdetector thresholdを変更しないでください。アコースティック音源でどのgateが見逃しを生むか証拠から特定できず、gateを下げるとStep 7k-11bで導入した誤検出抑制を損なうためです。
 
-For the next implementation step, first add a small, locally held acoustic drum evaluation set with manually annotated Kick onset times and source provenance. It should include soft/hard hits, varied tuning/tail lengths, Kick+Snare/Tom overlaps, and non-Kick low-frequency negatives. Run the current detector unchanged and record one-to-one onset matching (using the existing ±80ms synthetic-test convention for comparability), plus each candidate’s gate-rejection reason. Then perform an offline ablation of the current ratio and decay gates. Implement only the smallest gate adjustment or complementary onset path that improves labeled Kick recall without materially increasing labeled false positives, retaining Timeline v1 fields and the current API.
+次の実装作業では、まずKick onsetを手作業でannotationしsource provenanceを記録した、小規模のローカル保管アコースティックドラム評価setを用意します。弱/強hit、異なる調律/tail長、Kick+Snare/Tom重複、Kick以外の低周波negativeを含めます。現行detectorは変更せず、既存synthetic testと比較できる±80ms規則で1対1 onset matchingを行い、各候補のgate棄却理由も記録します。その後、現在のratio/decay gateをoffline ablationします。Timeline v1 fieldと現行APIを維持しながら、label付きKick recallを改善し、label付き誤検出を大きく増やさない最小限のgate調整または補完onset経路だけを実装します。
 
-This is the smallest evidence-backed plan; a particular numeric threshold change is not yet justified. If adding labeled acoustic material is not possible, keep the detector unchanged and report the remaining uncertainty rather than treating unlabeled event-count reductions as accuracy gains.
+これは証拠に基づく最小計画です。具体的な数値threshold変更を行う根拠はまだありません。label付きアコースティック素材を用意できない場合はdetectorを変更せず、labelのないevent件数の減少を精度向上と見なさずに不確実性を報告してください。
 
-## Test plan for the implementation step
+## 実装stepのtest計画
 
 - Preserve all current synthetic labeled tests: weak and strong Kick, Kick+Snare, Snare-only, Tom-only, sustained Bass, silence/noise, close double-Kick, deterministic output, terminal boundary, and strength alignment/range.
 - Add locally stored acoustic examples with annotated onsets and representative low-frequency negatives; keep samples local and do not upload them.
@@ -88,19 +88,19 @@ This is the smallest evidence-backed plan; a particular numeric threshold change
 - Verify Timeline v1 schema, integer millisecond ordering/range, event-strength array alignment and 0..1 bounds; run existing Frontend/Go Timeline validation and Binding/Effect regression tests.
 - Separately evaluate renderer Binding values at labeled event times for thresholds around the configured values; do not conflate detector metrics with visible Effect response.
 
-## Compatibility and scope
+## 互換性と範囲
 
-No Blueprint, Timeline v1, Project, Cloud, Audio Analyze API, Demucs model/weights, detection code, frontend Binding behavior, or dependencies were changed. A future detector-only change can retain the existing `kickEvents` / `kickEventStrengths` contract. No DB, auth, Hosted, or external-service operations were performed.
+Blueprint、Timeline v1、Project、Cloud、Audio Analyze API、Demucs model/weights、検出code、Frontend Binding挙動、dependencyは変更していません。将来detectorだけを変更する場合も既存`kickEvents`/`kickEventStrengths` contractを維持できます。DB、auth、Hosted、外部serviceの操作はありません。
 
-## Unconfirmed items
+## 未確認事項
 
-- Whether the reported weak Kick response is caused by detector misses or by Binding/Effect configuration.
-- Performance on actual acoustic drum recordings and on acoustic Kick mixed with low Tom/Bass.
-- Real-song precision, recall, F1, and onset offset.
-- Whether Demucs attenuates specific acoustic Kick transients for the target source.
-- Per-Effect perceptual response in a real browser; this task made no browser changes or visual acceptance claims.
+- 報告されたKick応答の弱さがdetector見逃しかBinding/Effect設定によるものか。
+- 実アコースティックドラム録音と低いTom/Bassが混ざったKickでの性能。
+- 実曲でのprecision、recall、F1、onset offset。
+- 対象sourceでDemucsが特定のアコースティックKick transientを減衰させるか。
+- 実browserでのEffectごとの知覚応答。このtaskではbrowser変更や視覚受け入れ判断をしていません。
 
-## References
+## 参照
 
 - `python-island/src/python_island/features.py`: `detect_kicks()`, `extract_features()`.
 - `python-island/tests/test_features.py`: synthetic detector fixtures and regressions.

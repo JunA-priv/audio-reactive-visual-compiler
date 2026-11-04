@@ -1,63 +1,60 @@
-# Step 7k-10 — Wave Ring Offsets and Effect Visibility
+# Step 7k-10 — Wave Ring offsetとEffect visibility
 
-**Status: partial**
+**状態：一部完了**
 
-## Result
+## 結果
 
-Wave Ring accepts `layerCount` 1..10. Automatic `layerAngleOffsetDeg: 0` uses `180/layerCount` degrees per layer, while positive values retain the manual adjacent-layer step. The same offset shifts both path angle and periodic sample phase. Existing single-layer Blueprints and manual offsets remain unchanged. New Wave Ring defaults remain four layers. At the renderer maximum of ten layers and 256 samples, each Effect evaluates at most 2,560 ring points and reuses the source sample series.
+Wave Ringの`layerCount`を1〜10に拡張しました。自動設定の`layerAngleOffsetDeg: 0`では、層ごとに`180/layerCount`度を使います。正の値では従来どおり手動指定の隣接層間隔です。同じoffsetがpath角度と周期的なsample phaseの両方をずらします。既存の単層Blueprintと手動offsetは変わりません。新規Wave Ringの既定値は4層です。renderer上限の10層・256 sampleの場合、Effectが評価するring pointは最大2,560点で、元sample列を再利用します。
 
-All 15 Effect kinds now accept optional `visibilityMode` (`triggered`/`always`) and `audioReactive` (boolean). Missing fields preserve legacy Triggered + Reactive behavior. New Editor and normalized AI Effects default to Always + Reactive. Always keeps existing basic geometry visible at a low alpha floor; Burst and Shockwave use deterministic static baselines when no event is active. They do not generate synthetic events. Peak waveform Effects draw a simple baseline line/contour when Always is selected and peaks are missing; they never synthesize waveform data. Audio Reactive OFF is valid only with Always and the Editor switches to Always when turning it off. Binding signals are suppressed; real peaks are sampled at clip start as a static baseline, and Continuous BPM rotation remains active.
+15種類すべてのEffectが、任意の`visibilityMode`（`triggered`/`always`）と`audioReactive`（boolean）を受け付けます。項目がない場合は従来のTriggered + Reactiveとして扱います。Editorで新規作成するEffectと正規化後のAI EffectはAlways + Reactiveが既定です。Alwaysでは既存の基本geometryを低alpha floorで表示します。BurstとShockwaveはeventがないとき決定的なstatic baselineを使いますが、合成eventは作りません。Peak waveform EffectはAlways選択時にpeaksがなければ簡単なbaseline line/contourを描き、波形dataを合成しません。Audio Reactive OFFはAlwaysの場合だけ有効で、EditorはOFFにするとAlwaysへ切り替えます。Binding signalは抑制しますが、実peaksはclip開始時にstatic baselineとしてsampleされ、Continuous BPM rotationは続きます。
 
-Blueprint v1, Feature Timeline v1, `.arvproj v1`, Cloud v1, 7 Audio Sources, Opacity, Gradient, Category → Type, Region clipping, BPM rotation, and shared `renderEditorFrame` are retained. OpenAI strict schema and normalization were updated; no OpenAI API was called.
+Blueprint v1、Feature Timeline v1、`.arvproj v1`、Cloud v1、7種類のAudio Source、Opacity、Gradient、Category → Type、Region clipping、BPM rotation、共有`renderEditorFrame`は維持します。OpenAI strict schemaとnormalizationを更新しましたが、OpenAI APIは呼び出していません。
 
-## Changed files
+## 変更ファイル
 
-- `frontend/src/editor-model.ts`: visibility/reactivity types and validation; layer range 1..10.
-- `frontend/src/renderer.ts`: automatic offset formula; Always baselines, audio signal suppression, static peak mode, and deterministic event-effect baselines.
-- `frontend/src/VisualEditor.tsx`: controls/defaults, invalid-combination prevention, layer limits, and status messaging.
-- `frontend/src/editor-renderer.test.ts`: offset geometry, 10×256 workload, Always/no-event/missing-peak, reactive off, and BPM coexistence.
-- `frontend/src/visual-editor.test.tsx`: controls across 15 types, setting changes, and Type-change retention.
-- `frontend/src/cloud-project.test.ts`: Cloud v1 carries the additive fields.
-- `api/internal/blueprint/blueprint.go`, `blueprint_test.go`: matching enum/bool/pair validation and layer range.
-- `api/internal/service/openai.go`, `openai_test.go`: strict properties, AI defaults/prompt, and schema checks.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/BLUEPRINT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/VISUAL_EFFECT_ROADMAP.md`: compatibility contract and verification record.
+- `frontend/src/editor-model.ts`：visibility/reactivityの型と検証、層数範囲1〜10。
+- `frontend/src/renderer.ts`：自動offset式、Always baseline、audio signal抑制、static peak mode、決定的なevent Effect baseline。
+- `frontend/src/VisualEditor.tsx`：controls/既定値、無効な組み合わせの防止、層数制限、状態表示。
+- `frontend/src/editor-renderer.test.ts`：offset geometry、10×256負荷、Always/no-event/missing-peak、reactive off、BPM共存。
+- `frontend/src/visual-editor.test.tsx`：15種類を通じたcontrols、設定変更、Type変更時の保持。
+- `frontend/src/cloud-project.test.ts`：Cloud v1が追加項目を保持すること。
+- `api/internal/blueprint/blueprint.go`、`blueprint_test.go`：対応するenum/bool/pair検証と層数範囲。
+- `api/internal/service/openai.go`、`openai_test.go`：strict property、AI既定値/prompt、schema検査。
+- `CURRENT_TASK.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md`、`docs/BLUEPRINT_SPEC.md`、`docs/ARCHITECTURE.md`、`docs/TEST_STRATEGY.md`、`docs/VISUAL_EFFECT_ROADMAP.md`：互換性contractと検証記録。
 
-## Tests
+## Test
 
-- Frontend `npm test -- --run`: **109 tests passed**.
-- `npm run typecheck`: passed.
-- `npm run lint`: passed.
-- `npm run build`: passed.
-- Go `go test ./internal/blueprint ./internal/projects`: passed.
-- Go OpenAI schema/normalization/rotation focused tests: passed.
-- Go `go vet ./...`: passed.
-- `git diff --check`: passed.
+- Frontend `npm test -- --run`：**109 test成功**。
+- `npm run typecheck`、`npm run lint`、`npm run build`：成功。
+- Go `go test ./internal/blueprint ./internal/projects`：成功。
+- Go OpenAI schema/normalization/rotationの対象test：成功。
+- Go `go vet ./...`、`git diff --check`：成功。
 
-`go test ./...` was attempted. The existing `TestOpenAIResponsesRequestUsesStrictStructuredOutput` could not start because the sandbox denied its IPv6 loopback listener (`listen tcp6 [::1]:0: operation not permitted`). Other packages completed before that failure. No test was disabled or changed to bypass it. A real browser was unavailable, so actual visual quality, preview/WebM frame comparison, and FPS remain unverified.
+`go test ./...`も試しました。既存の`TestOpenAIResponsesRequestUsesStrictStructuredOutput`は、sandboxがIPv6 loopback listener（`listen tcp6 [::1]:0: operation not permitted`）を拒否して開始できませんでした。それ以前のpackageは完了しました。testを無効化/変更して回避していません。実ブラウザーが利用できず、実際の画質、preview/WebM frame比較、FPSは未検証です。
 
-## Compatibility and scope
+## 互換性と範囲
 
-All fields are additive optional Blueprint v1 extensions; no version, Timeline, Project, Cloud, database, API persistence, dependency, or hosted changes were made. Old Blueprints default to Triggered + Reactive and one Wave Ring layer. Existing renderer and export paths are unchanged.
+すべて任意項目としてBlueprint v1へ追加しました。version、Timeline、Project、Cloud、database、API persistence、dependency、Hosted環境は変更していません。旧BlueprintはTriggered + Reactive、Wave Ringは1層として扱います。既存rendererとexport経路は変更していません。
 
-## Remaining issues
+## 残課題
 
-- Run the complete Go service suite where IPv6 loopback binding is permitted.
-- Inspect 10-layer visual compositing, clipping, and WebM output in a real browser.
+- IPv6 loopback bindを許可する環境でGo service全体のsuiteを実行する。
+- 実ブラウザーで10層の合成、clip、WebM出力を確認する。
 
-## Layer offset correction (2026-11-01)
+## Layer offsetの修正（2026-11-01）
 
-The reported overlap came from applying `layerOffsetDeg` twice in opposite roles: the renderer sampled `features[index + phaseOffset]` and also placed the point at `baseAngle + layerOffsetDeg`. For a sampled feature at angle θ, this paired shift moved that same feature back onto its original world angle, so the geometry offset existed numerically while its asymmetric contour nearly overlapped.
+報告された重なりは、`layerOffsetDeg`を逆の役割で二重に適用していたことが原因でした。rendererは`features[index + phaseOffset]`をsampleすると同時に、点を`baseAngle + layerOffsetDeg`へ配置していました。角度θのsample featureに両方のshiftをかけると、同じfeatureが元のworld angleへ戻ります。そのため、数値上はgeometry offsetがあっても、非対称contourがほぼ重なって見えていました。
 
-The renderer now evaluates every layer from the same reference sample (`features[index]`) and applies the shared BPM rotation plus layer offset only to the Canvas coordinate angle. Radius step, amplitude decay, smoothing, cyclic closure, opacity, gradient, clipping, and binding sampling are unchanged.
+修正後は、すべての層が同じ参照sample（`features[index]`）を評価し、共有BPM rotationとlayer offsetはCanvas座標角度にだけ適用します。radius step、振幅decay、smoothing、cyclic closure、opacity、gradient、clip、Binding sampleは変更していません。
 
-Added a regression test that builds a non-symmetric single-sample dip, renders through `renderEditorFrame` and its Catmull-Rom Canvas path, then locates the feature in the final path endpoints. It verifies 3/4/6/10-layer automatic offsets, the 4-layer 45° separation, manual 13° spacing, BPM continuous rotation plus 19° initial angle, smoothing, deterministic repeated time after out-of-order evaluation, and the common Renderer draw path. The test fails under the prior phase-plus-coordinate offset implementation.
+非対称な単一sampleのdipを作り、`renderEditorFrame`とCatmull-Rom Canvas経路で描画して、最終path endpointからfeature位置を検出するregression testを追加しました。3/4/6/10層の自動offset、4層の45°間隔、手動13°間隔、BPM連続回転と初期角19°、smoothing、評価順が前後しても同じtimeなら同じ結果になること、共通Renderer経路を検証します。従来のphaseと座標の両offset実装ではtestが失敗します。
 
-Correction verification: `npm test -- --run src/editor-renderer.test.ts` passed (38 tests). Full verification passed: `npm test -- --run` (110 tests), `npm run typecheck`, `npm run lint`, `npm run build`, and `git diff --check`. No schema or non-Renderer implementation changed. A new manual browser inspection after the correction is not available in this environment.
+修正確認：`npm test -- --run src/editor-renderer.test.ts`成功（38 test）。全体確認では`npm test -- --run`（110 test）、`npm run typecheck`、`npm run lint`、`npm run build`、`git diff --check`が成功しました。schemaおよびRenderer以外の実装は変更していません。修正後の手動browser確認は、この環境ではできません。
 
-## Step 7k-10b angle and concentric-radius correction
+## Step 7k-10b 角度と同心半径の修正
 
-The automatic adjacent-layer step is now `360 / layerCount` (3 layers: 120°, 4: 90°, 6: 60°, 10: 36°). Each layer uses the same base `radius`. The shared sample sequence remains unchanged across layers; BPM rotation, initial angle, and the per-layer offset are combined once in rendered Canvas coordinates. This avoids phase cancellation and gives the asymmetric waveform peaks the requested full-turn spacing.
+自動の隣接層stepは`360 / layerCount`になりました（3層：120°、4層：90°、6層：60°、10層：36°）。すべての層で同じ基準`radius`を使用します。共有sample列は層間で変更せず、BPM rotation、初期角、層ごとのoffsetを一度だけ描画Canvas座標に合成します。これによりphase cancellationを防ぎ、非対称波形peaksを指定どおり一周分ずらします。
 
-`layerRadiusStep` remains an accepted, validated optional field in Blueprint v1 so old Blueprints and `.arvproj`/Cloud v1 data continue to load. Wave Ring no longer exposes that setting in the Editor and the renderer ignores it. No version, API, Timeline, or OpenAI schema change was needed.
+`layerRadiusStep`はBlueprint v1で引き続き任意項目として受理・検証するため、旧Blueprintや`.arvproj`/Cloud v1 dataを読み込めます。Wave RingのEditorからはこの設定を削除し、rendererでも無視します。version、API、Timeline、OpenAI schemaの変更は不要でした。
 
-Updated tests cover 120/90/60/36° in final smoothed Canvas path coordinates, manual offsets, initial angle plus BPM rotation, out-of-order deterministic evaluation, same-radius paths even with legacy `layerRadiusStep`, and UI hiding the obsolete radius control. Verification: Frontend `npm test -- --run` passed (110 tests), `npm run typecheck`, `npm run lint`, `npm run build`, Blueprint/Project Go package tests, focused Go Blueprint/OpenAI schema and normalization tests, `go vet ./...`, and `git diff --check` passed. A broader Go service test filter selected existing httptest cases requiring an IPv6 loopback listener and was blocked by the sandbox (`operation not permitted`); the schema-focused tests that do not bind a listener passed. Real-browser pixel inspection remains unavailable.
+更新testは、最終的にsmoothingしたCanvas path座標での120/90/60/36°、手動offset、初期角とBPM rotation、順序を変えた決定的評価、旧`layerRadiusStep`があっても同じ半径であること、obsoleteなradius controlをUIで隠すことを確認します。検証ではFrontend `npm test -- --run`（110 test）、`npm run typecheck`、`npm run lint`、`npm run build`、Blueprint/Project Go package test、Go Blueprint/OpenAI schemaとnormalizationの対象test、`go vet ./...`、`git diff --check`が成功しました。広範なGo service testのfilterでは、既存httptestが必要とするIPv6 loopback listenerをsandboxが拒否しました（`operation not permitted`）。listenerを使わないschema対象testは成功しました。実browserのpixel確認は未実施です。

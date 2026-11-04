@@ -1,34 +1,34 @@
-# Audio Analyze ECONNRESET investigation
+# Audio Analyze ECONNRESETの調査
 
-**status: partial.** A local cancellation handling defect was fixed and observability improved. The reported ECONNRESET was not reproduced; its initiating cause remains unconfirmed.
+**状態: 部分完了。** ローカルのキャンセル処理不具合を修正し、観測性を改善しました。報告されたECONNRESETは再現できておらず、発端となった原因は未確定です。
 
-## Findings
+## 調査結果
 
-### Request path
+### リクエスト経路
 
-1. `trimAudioToWav` decodes the user file in Web Audio, crops the selected sample frames through `OfflineAudioContext`, and encodes 44.1kHz stereo PCM16 WAV.
-2. `analyzeAudioClip` posts one `audio` part using `FormData` and a Bearer token. It leaves multipart `Content-Type`/boundary generation to the browser and uses the caller's `AbortSignal`. There is no frontend analysis timeout.
-3. Vite forwards `/api` to `http://127.0.0.1:8080`; no proxy timeout is configured.
-4. Go validates multipart/WAV, probes with ffprobe, then runs the configured Python Island executable under a 600-second request context. Go's default `http.Server` is used without a configured write timeout.
-5. Python Island decodes using ffmpeg and runs the existing CPU Demucs path. Go discards Python stdout/stderr, validates JSON outputs, and previously logged only coarse failure classes.
+1. `trimAudioToWav`はWeb Audioでユーザーファイルをデコードし、`OfflineAudioContext`で選択したサンプルフレームを切り出し、44.1kHzステレオPCM16 WAVにエンコードします。
+2. `analyzeAudioClip`は`FormData`で`audio`パート1つをBearer token付きで送信します。multipartの`Content-Type`/boundary生成はブラウザーに任せ、呼び出し元の`AbortSignal`を使います。Frontend側に解析timeoutはありません。
+3. Viteは`/api`を`http://127.0.0.1:8080`へ転送します。proxy timeoutは設定されていません。
+4. Goはmultipart/WAVを検証し、ffprobeで調べた後、600秒のrequest context内で設定済みPython Island実行ファイルを起動します。Goの既定`http.Server`を使い、write timeoutは設定していません。
+5. Python Islandはffmpegでデコードし、既存のCPU Demucs経路を実行します。GoはPython stdout/stderrを破棄し、JSON出力を検証します。従来のログは大まかな失敗分類のみでした。
 
-### Size and timing
+### サイズと時間
 
-A 60-second 44.1kHz stereo PCM16 WAV is `44 + 60 * 44100 * 2 * 2 = 10,584,044` bytes, before a small multipart envelope. This is below the existing 16MiB whole-request limit. `trimAudioToWav` rejects a WAV file larger than 16MiB, and the 60-second crop limit keeps normal generated clips well below that limit. Limits were not increased.
+60秒の44.1kHzステレオPCM16 WAVは、小さなmultipart envelopeを除き`44 + 60 * 44100 * 2 * 2 = 10,584,044` bytesです。既存のリクエスト全体上限16MiB未満です。`trimAudioToWav`は16MiB超のWAVを拒否し、60秒の切り出し制限により通常生成されるclipはこの上限を十分下回ります。制限は引き上げていません。
 
-The Vite Proxy has no configured timeout; the Frontend fetch has no request deadline; Go's analysis timeout is 600 seconds. Therefore a configured timeout mismatch is not supported by the inspected code. The user's exact clip, Vite/Go logs, HTTP response, and process exit/OOM evidence were unavailable, and no live Vite/API pair was running in this workspace. These checks do not establish the initiating cause of the reported event.
+Vite Proxyにtimeout設定はなく、Frontend fetchにもrequest deadlineはありません。Goの解析timeoutは600秒です。したがって、確認したコードから設定timeoutの不一致は裏付けられません。ユーザーの該当clip、Vite/Goログ、HTTP応答、process exit/OOMの証拠は入手できず、このworkspaceでVite/APIの稼働ペアもありませんでした。これらの確認では報告事象の発端原因を特定できません。
 
-The existing Go-to-Python CPU integration test using a 2-second PCM WAV completed successfully through the handler and returned the validated response (7.2 seconds on the final run). This confirms a short normal path only; it does not validate a 60-second or user-provided clip.
+2秒PCM WAVを使う既存Go-to-Python CPU統合テストはhandlerを通って正常完了し、検証済み応答を返しました（最終実行7.2秒）。これは短い正常経路のみ確認するもので、60秒またはユーザー提供clipの検証ではありません。
 
-## Local defect corrected
+## 修正したローカル不具合
 
-When a client disconnects while the multipart WAV is still being read, `receiveSingleWAV` returns a body-read error. The handler previously treated every such error as malformed audio and attempted to send HTTP 422, even when the request context was already canceled. The handler now recognizes canceled request bodies, logs the cancellation stage, cleans up the temporary directory, and returns without attempting a response on the dead connection. This avoids misclassifying client cancellation; it does not prove that cancellation caused the user's incident.
+multipart WAV読み込み中にclientが切断すると、`receiveSingleWAV`はbody-read errorを返します。以前のhandlerはrequest contextが既にcancel済みでも、その種のエラーをすべて音声形式不正とみなしHTTP 422を送ろうとしていました。現在のhandlerはcancel済みrequest bodyを認識し、キャンセル段階を記録し、一時ディレクトリをcleanupしたうえで、切断済み接続へ応答を試みずにreturnします。clientキャンセルの誤分類は防ぎますが、ユーザーの障害原因がキャンセルだったことを証明するものではありません。
 
-Go diagnostics now record request Content-Length, stage (`receive_audio`, `probe`, or `python`), uploaded byte count where available, and child process exit code/signal. They do not record audio data, filenames/paths, credentials, or stderr. Existing sanitized HTTP errors and all limits remain unchanged.
+Go診断ログにrequest Content-Length、stage（`receive_audio`、`probe`、`python`）、取得可能な場合はアップロードbyte数、子プロセスexit code/signalを記録するようにしました。音声データ、ファイル名/path、認証情報、stderrは記録しません。既存の秘匿化HTTPエラーと各種制限は維持します。
 
-## Layer and reproduction assessment
+## レイヤー別の再現評価
 
-| Case | Result |
+| ケース | 結果 |
 |---|---|
 | Middle-range crop (Frontend unit fixture) | Existing test passes; sample offset/duration checked |
 | Beginning/end/short crop | Added fixture checks pass |
@@ -41,48 +41,48 @@ Go diagnostics now record request Content-Length, stage (`receive_audio`, `probe
 | User's failing clip and its Content-Length | Not available |
 | OOM/process restart evidence | Not available |
 
-The root error remains unconfirmed. A canceled browser request can result in an upstream proxy write reset, and a rejected/closed upstream request can also surface as a proxy `ECONNRESET`, but neither was shown to be the cause here.
+根本エラーは未確定です。ブラウザーrequestのキャンセルによりupstream proxyのwrite resetが発生する場合や、upstream requestの拒否/切断がproxyの`ECONNRESET`として現れる場合がありますが、今回どちらが原因かは示されていません。
 
-## Changed files
+## 変更ファイル
 
 - `api/internal/audioanalysis/handler.go` — safe stage/size/process diagnostics and canceled-body handling.
 - `api/internal/audioanalysis/handler_test.go` — cancellation-during-upload regression and exit-code diagnostic test.
 - `frontend/src/audio-analysis.test.ts` — beginning, middle, end, short-range, and invalid-range coverage.
 - `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md` — investigation status and remaining root-cause uncertainty.
 
-No API response, authentication, quota, timeout, size limit, Blueprint/Timeline/Project/Cloud version, dependency, or Python algorithm changed. No Hosted operation, OpenAI call, or GitHub push occurred.
+API応答、認証、quota、timeout、サイズ制限、Blueprint/Timeline/Project/Cloudのversion、依存関係、Pythonアルゴリズムは変更していません。Hosted操作、OpenAI call、GitHub pushも行っていません。
 
-## Validation
+## 検証
 
-- `npm test -- --run` — passed, 138 tests across 12 files.
-- `npm run typecheck` — passed.
-- `npm run lint` — passed.
-- `npm run build` — passed.
-- `go test -count=1 ./internal/audioanalysis` — passed.
-- `ARVC_AUDIO_ANALYSIS_INTEGRATION=1 go test -count=1 -run TestAnalyzeThroughLocalPythonIslandCPU -v ./internal/audioanalysis` — passed (2-second PCM clip).
-- `go vet ./internal/audioanalysis` — passed.
-- `python -m pytest -q` — passed, 27 tests.
-- `mypy --strict` — passed.
-- `ruff check src tests` — reports 16 E501 findings in unchanged files. `ruff check --ignore E501 src tests` passes.
-- `git diff --check` — passed.
+- `npm test -- --run` — 12ファイル、138件成功。
+- `npm run typecheck` — 成功。
+- `npm run lint` — 成功。
+- `npm run build` — 成功。
+- `go test -count=1 ./internal/audioanalysis` — 成功。
+- `ARVC_AUDIO_ANALYSIS_INTEGRATION=1 go test -count=1 -run TestAnalyzeThroughLocalPythonIslandCPU -v ./internal/audioanalysis` — 成功（2秒PCM clip）。
+- `go vet ./internal/audioanalysis` — 成功。
+- `python -m pytest -q` — 27件成功。
+- `mypy --strict` — 成功。
+- `ruff check src tests` — 未変更ファイルにE501違反を16件報告。`ruff check --ignore E501 src tests`は成功。
+- `git diff --check` — 成功。
 
-## Remaining work
+## 残作業
 
-To identify the user's exact root cause, capture the sanitized new Go request/stage logs and Vite proxy log for one failing attempt, including request Content-Length, HTTP status if returned, elapsed time, and whether the user canceled/navigated away. If a Python process failure is recorded, use its exit code/signal and local OOM/system logs; do not log audio or credentials. Retry the same clip through direct Go and then Vite only in the local environment. Until that evidence exists, status remains partial.
+ユーザーの正確な根本原因を特定するには、失敗試行1回分の秘匿化済みGo request/stageログとVite proxyログを取得してください。request Content-Length、返却された場合のHTTP status、経過時間、ユーザーがcancel/画面遷移したかを含めます。Python process failureが記録された場合はexit code/signalとローカルOOM/systemログを使い、音声や認証情報は記録しないでください。同じclipをまずGo直結、次にVite経由でローカル環境のみで再試行します。この証拠が得られるまでは部分完了のままです。
 
-## Follow-up: reported reset recurrence and 60-second reproduction (2026-11-01)
+## 追跡調査: reset再発の報告と60秒再現（2026-11-01）
 
-**status: partial.** The local configuration strongly indicates that the analysis route was disabled, and a second, independent 60-second result-file limit was reproduced and fixed. The exact browser → Vite → TCP Go incident still could not be captured in this environment.
+**状態: 部分完了。** ローカル設定から解析routeが無効だった可能性が高く、これとは独立した60秒結果ファイル上限の問題も再現して修正しました。この環境ではブラウザー→Vite→TCP Goの実障害を取得できませんでした。
 
-### Likely cause of the proxy reset
+### Proxy resetの有力原因
 
-The local `api/.env` had `API_ADDR=127.0.0.1:8080` but no `AUDIO_ANALYSIS_ENABLED`. The Go server defaults that setting to false and registers `/api/v1/audio/analyze` only when it is explicitly enabled. The documented local startup also requires `AUDIO_ANALYSIS_ENABLED=true`. This missing setting is consistent with a request reaching a live API that immediately returns 404 without consuming the large multipart body; the proxy can then encounter a socket reset while still writing the body. The local ignored `.env` was updated to `AUDIO_ANALYSIS_ENABLED=true`; restart `api/run-local.sh` for it to take effect.
+ローカル`api/.env`には`API_ADDR=127.0.0.1:8080`がありましたが、`AUDIO_ANALYSIS_ENABLED`はありませんでした。Go serverはこの設定を既定falseとし、明示的に有効化された場合のみ`/api/v1/audio/analyze`を登録します。ローカル起動手順でも`AUDIO_ANALYSIS_ENABLED=true`が必要です。この設定欠落は、大きなmultipart bodyを読み込まずに稼働中APIが即時404を返し、bodyを書き込み中のproxyでsocket resetが起こる状況と整合します。ローカルのignore対象`.env`を`AUDIO_ANALYSIS_ENABLED=true`に更新しました。反映には`api/run-local.sh`を再起動してください。
 
-This is a strong configuration-based explanation, not proof of the exact 20:20:20 incident: the old Go process environment and request logs were unavailable, and no live Vite/API pair could be started here. Go now logs startup `addr` and `audio_analysis_enabled`, making route availability explicit. Sanitized request lifecycle logging begins outside the auth handler and records status, Content-Length, elapsed time, and cancellation, without recording audio, credentials, paths, or stderr.
+これは設定に基づく有力な説明であり、20:20:20の事象そのものの証明ではありません。旧Go process環境とrequestログを入手できず、ここでは稼働中のVite/APIペアも起動できませんでした。Goは起動時に`addr`と`audio_analysis_enabled`をログ出力し、route有効性を明示するようになりました。秘匿化request lifecycleログはauth handler外側から開始し、audio、credentials、path、stderrを記録せずにstatus、Content-Length、経過時間、cancel状態を記録します。
 
-### Upload and CPU analysis reproduction
+### アップロードとCPU解析の再現
 
-| Case | Result |
+| ケース | 結果 |
 |---|---|
 | Generated 60-second 44.1kHz stereo PCM16 WAV | 10,584,044 bytes |
 | Multipart request to Go/Echo handler with fake runner | 10,584,294 bytes received; exact WAV bytes observed by runner; HTTP 200 |
@@ -90,9 +90,9 @@ This is a strong configuration-based explanation, not proof of the exact 20:20:2
 | Real CPU Demucs through Go handler, after fix | HTTP 200; 60,000ms Timeline / 6,000 points; about 36.2s total |
 | Direct live TCP Go / Vite proxy / actual browser-created MP3 crop | Not run; loopback bind is denied in this execution environment and no live process/browser incident logs were available |
 
-The internal bounded JSON output-file cap was raised from 4MiB to 8MiB based on the measured 4,348,728-byte valid 60-second output. The external whole-request cap remains 16MiB; analysis timeout remains 600 seconds. Auth, quota, request/response schema, and Python processing are unchanged. This 502 was a separate confirmed issue exposed by reproduction; it does not itself explain the observed Vite `write ECONNRESET`.
+有効な60秒出力の実測サイズ4,348,728 bytesに基づき、内部JSON出力ファイル上限を4MiBから8MiBへ引き上げました。外部リクエスト全体の上限は16MiB、解析timeoutは600秒のままです。Auth、quota、request/response schema、Python処理に変更はありません。この502は再現により判明した別個の問題であり、観測されたVite `write ECONNRESET`そのものを説明するものではありません。
 
-### Follow-up code and validation
+### 追跡コードと検証
 
 - `api/cmd/server/main.go`: startup diagnostic records listen address and route enable flag.
 - `api/internal/audioanalysis/handler.go`: sanitized outer request lifecycle logging; internal Timeline JSON output cap is 8MiB; canceled multipart receive remains treated as cancellation, not malformed audio.
@@ -100,7 +100,7 @@ The internal bounded JSON output-file cap was raised from 4MiB to 8MiB based on 
 - `api/internal/audioanalysis/handler_integration_test.go`: configurable real CPU integration duration, bounded to 1–60 seconds.
 - Local ignored `api/.env`: enabled the analysis route; no secret values were printed or added to version control.
 
-Validation:
+検証:
 
 - `go test -count=1 -v ./internal/audioanalysis` — passed, including 10,584,294-byte multipart upload test.
 - `ARVC_AUDIO_ANALYSIS_INTEGRATION=1 ARVC_AUDIO_ANALYSIS_INTEGRATION_DURATION_SECONDS=60 go test -count=1 -run TestAnalyzeThroughLocalPythonIslandCPU -v ./internal/audioanalysis` — passed after the 8MiB internal output cap adjustment; real CPU path completed in about 36s.
@@ -110,15 +110,15 @@ Validation:
 - `GOCACHE=/tmp/arvc-go-cache /usr/local/go/bin/go vet ./...` — passed after all code changes.
 - Live TCP/Vite/browser reproduction remains unavailable; the user's source MP3 and 20:20 process diagnostics were not present.
 
-### Recommended local confirmation
+### 推奨するローカル確認
 
-Restart Go API after applying the local `.env` setting and confirm startup log has `audio_analysis_enabled=true`. Then retry once in the local browser while observing sanitized Go request lifecycle logs and Vite output. If the reset persists, compare direct Go and Vite paths for the same local clip; do not raise either request cap or timeout without new evidence.
+ローカル`.env`設定を適用してGo APIを再起動し、起動ログに`audio_analysis_enabled=true`があることを確認してください。秘匿化Go request lifecycleログとVite出力を見ながら、ローカルブラウザーで1回再試行します。resetが続く場合は同じローカルclipをGo直結とVite経由で比較してください。新しい証拠なしにrequest上限やtimeoutを増やさないでください。
 
-## Follow-up: 60-second analysis reported still running after 3 minutes (2026-11-01)
+## 追跡調査: 60秒解析が3分後も実行中との報告（2026-11-01）
 
-**status: partial.** This execution environment did not expose the user's running API, browser, or request logs. Therefore it was not possible to identify the current request stage or confirm a 60-second real-source completion. No process was stopped and no runtime configuration or timeout was changed.
+**状態: 部分完了。** この実行環境からユーザーの稼働中API、ブラウザー、requestログを確認できませんでした。そのため現在のrequest段階を特定できず、実ソース60秒解析の完了も確認できませんでした。process停止やruntime設定/timeoutの変更はしていません。
 
-### Read-only runtime snapshot
+### 読み取り専用runtime状況
 
 - `ps -eo pid,ppid,etimes,%cpu,%mem,rss,comm` showed only the current Codex/shell/tool processes in this process namespace; no Go API, Vite, Python, ffmpeg, or Demucs process was visible.
 - No API `.log`, stdout, or stderr log files were found under the local `api/` tree.
@@ -126,9 +126,9 @@ Restart Go API after applying the local `.env` setting and confirm startup log h
 - `ss -ltnp` could not read sockets because netlink access was denied. It does not establish whether the user's API is listening.
 - No request-start log, Content-Length, active stage, HTTP response, Python exit code, CPU, or RSS for the user's 3-minute wait was available. The current request's receive/ffprobe/Python/Frontend stage is **unknown**.
 
-This workspace therefore cannot determine whether the reported browser operation was still making progress or stalled. Earlier absence of Vite/API in this sandbox must not be interpreted as evidence that the user's separate local processes are stopped.
+このworkspaceでは、報告されたブラウザー操作が進行中だったか停止していたか判断できません。以前このサンドボックスにVite/APIが見つからなかったことを、ユーザー側の別ローカルprocessが停止している証拠と解釈してはいけません。
 
-### Existing timing evidence and stage visibility
+### 既存の時間計測値と処理段階の可視性
 
 The existing synthetic 60-second WAV and its Python metadata were available for read-only inspection:
 
@@ -144,15 +144,15 @@ The existing synthetic 60-second WAV and its Python metadata were available for 
 
 The earlier Go-handler CPU integration for the same class of 60-second synthetic fixture completed with HTTP 200 in about 36.2s. These values do not characterize the actual MP3 or its browser-generated WAV.
 
-Frontend inspection shows `trimAudioToWav` first calls `file.arrayBuffer()` and `AudioContext.decodeAudioData()` on the entire source MP3, then renders the selected 60-second crop using `OfflineAudioContext`, then constructs the WAV. The UI switches to one generic “trimming and local Demucs analysis” status before these operations and keeps it until the HTTP request and Editor state commit finish. No separate progress/timing is surfaced for MP3 decode, WAV render, or upload. The app's code does not set a fetch timeout; the Go API's analysis timeout remains 600 seconds.
+Frontend調査によると、`trimAudioToWav`はまず`file.arrayBuffer()`と`AudioContext.decodeAudioData()`でソースMP3全体を読み込み、次に`OfflineAudioContext`で選択した60秒範囲を描画してからWAVを組み立てます。UIはこれらの処理前に「切り出し中・ローカルDemucs解析中」という汎用状態へ切り替わり、HTTP requestとEditor state確定まで維持します。MP3デコード、WAV描画、uploadそれぞれの進捗/時間は個別表示されません。アプリコードにfetch timeoutはなく、Go APIの解析timeoutは600秒です。
 
-Go logs a request-received event, but successful receive and ffprobe stages are not individually logged. Python `analysis-metadata.json` contains decode, separation, feature, total, and peak RSS metrics, but Go reads it only after Python exits, so it cannot report in-progress stage timing. There is no evidence from this inspection that the 600-second timeout or a deadlock was reached.
+Goはrequest受信イベントを記録しますが、受信成功とffprobe段階は個別にログ出力しません。Python `analysis-metadata.json`にはdecode、separation、feature、合計時間、ピークRSSの指標がありますが、GoはPython終了後にしか読まないため、実行中の段階時間を報告できません。この調査では600秒timeoutやdeadlock到達の証拠はありません。
 
-### Conclusion and next evidence needed
+### 結論と次に必要な証拠
 
-No root cause for this three-minute wait is established. The previous synthetic fixture completed in roughly 36 seconds, but its CPU separation alone used about 1.28 GiB peak RSS; a different machine load or actual input may take longer, while the broad Frontend status cannot distinguish that from browser decode or a hang. This is a hypothesis only, not a finding about the user's request.
+この3分待機の根本原因は確定していません。前回の合成fixtureは約36秒で完了しましたが、CPU音源分離だけでピークRSS約1.28 GiBを使用しました。異なるマシン負荷や実入力では時間がかかる可能性があり、Frontendの汎用statusではブラウザーデコードや停止状態と区別できません。これは仮説にすぎず、ユーザーrequestについての調査結果ではありません。
 
-To classify one real attempt without stopping it, capture on the same machine where it runs:
+実際の試行を停止せず分類するには、実行している同じマシンで次を取得してください。
 
 1. Go startup record confirming `addr` and `audio_analysis_enabled=true`.
 2. Request start and eventual finish record with Content-Length, status, elapsed time, and cancellation field.
@@ -160,11 +160,11 @@ To classify one real attempt without stopping it, capture on the same machine wh
 4. After completion, sanitized `analysis-metadata.json` timing fields (decode, separation, feature extraction, total, peak RSS) or equivalent values from the response.
 5. Browser timing boundaries for source decode, offline render, fetch start, and fetch completion, plus generated WAV metadata (size/rate/channels/bit depth/frames), with no audio samples.
 
-No code change was made because the current stage and failure mechanism could not be established. The 60-second WAV fixture remains the only measured input; a browser-produced WAV from the reported MP3 and a completed real-source analysis were unavailable.
+現在の処理段階と失敗機序を確定できなかったため、コード変更は行っていません。測定済み入力は60秒WAV fixtureのみです。報告されたMP3からブラウザーが生成したWAVと、実ソース解析の完了結果は入手できませんでした。
 
-### Follow-up validation
+### 追跡検証
 
 - `GOCACHE=/tmp/arvc-go-cache /usr/local/go/bin/go test -count=1 ./internal/audioanalysis` — passed.
-- `git diff --check` — passed.
+- `git diff --check` — 成功。
 - Existing earlier 60-second real CPU synthetic integration — passed at HTTP 200 (~36.2s); not rerun in this follow-up because no code changed.
-- Real browser/API runtime and the user's MP3 crop — unavailable; status remains partial.
+- 実ブラウザー/API runtimeとユーザーのMP3切り出し — 入手できず、部分完了のまま。

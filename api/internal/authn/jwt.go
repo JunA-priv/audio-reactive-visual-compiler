@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/MicahParks/keyfunc/v3"
@@ -20,6 +21,7 @@ const (
 )
 
 var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var hostedIssuerPattern = regexp.MustCompile(`^https://[a-z0-9]{20}\.supabase\.co/auth/v1$`)
 
 type claims struct {
 	jwt.RegisteredClaims
@@ -33,21 +35,26 @@ type Validator struct {
 	issuer string
 	keys   keyfunc.Keyfunc
 	cancel context.CancelFunc
+	failed *atomic.Bool
 }
 
-// NewValidator accepts only a loopback local Auth issuer. The local project is
-// deliberately isolated from hosted Supabase during this implementation.
+// NewValidator preserves the local Supabase entry point for existing callers.
 func NewValidator(parent context.Context, issuer string) (*Validator, error) {
-	parsed, err := url.Parse(issuer)
-	if err != nil || parsed == nil || parsed.Scheme != "http" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !isLoopback(parsed.Hostname()) {
-		return nil, errors.New("Supabase issuer must be a loopback HTTP URL")
-	}
-	if parsed.Path != "/auth/v1" {
-		return nil, errors.New("Supabase issuer path is invalid")
+	return NewValidatorForMode(parent, "local", issuer)
+}
+
+// NewValidatorForMode requires an explicit trust mode: loopback HTTP for local
+// Supabase, or the canonical HTTPS project issuer for hosted Supabase.
+func NewValidatorForMode(parent context.Context, mode, issuer string) (*Validator, error) {
+	mode = strings.TrimSpace(strings.ToLower(mode))
+	issuer = strings.TrimSpace(issuer)
+	if err := validateIssuer(mode, issuer); err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	client := &http.Client{Timeout: 4 * time.Second}
-	keys, err := keyfunc.NewDefaultOverrideCtx(ctx, []string{strings.TrimRight(issuer, "/") + "/.well-known/jwks.json"}, keyfunc.Override{
+	refreshFailed := &atomic.Bool{}
+	client := &http.Client{Timeout: 4 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	keys, err := keyfunc.NewDefaultOverrideCtx(ctx, []string{issuer + "/.well-known/jwks.json"}, keyfunc.Override{
 		Client:           client,
 		HTTPTimeout:      4 * time.Second,
 		RefreshInterval:  10 * time.Minute,
@@ -55,14 +62,42 @@ func NewValidator(parent context.Context, issuer string) (*Validator, error) {
 		RefreshErrorHandlerFunc: func(_ string) func(context.Context, error) {
 			return func(context.Context, error) {
 				// Never log URLs, response bodies, or key material from JWKS failures.
+				refreshFailed.Store(true)
 			}
 		},
 	})
 	if err != nil {
 		cancel()
-		return nil, errors.New("could not initialize local Supabase JWKS")
+		return nil, errors.New("could not initialize Supabase JWKS")
 	}
-	return &Validator{issuer: strings.TrimRight(issuer, "/"), keys: keys, cancel: cancel}, nil
+	return &Validator{issuer: issuer, keys: keys, cancel: cancel, failed: refreshFailed}, nil
+}
+
+func validateIssuer(mode, issuer string) error {
+	parsed, err := url.Parse(issuer)
+	if err != nil || parsed == nil || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || strings.HasSuffix(issuer, "/") {
+		return errors.New("Supabase issuer configuration is invalid")
+	}
+	switch mode {
+	case "local":
+		expectedHost := parsed.Hostname()
+		if strings.Contains(expectedHost, ":") {
+			expectedHost = "[" + expectedHost + "]"
+		}
+		if parsed.Port() != "" {
+			expectedHost += ":" + parsed.Port()
+		}
+		if parsed.Scheme != "http" || !isLoopback(parsed.Hostname()) || parsed.Path != "/auth/v1" || parsed.Host != expectedHost {
+			return errors.New("local Supabase issuer configuration is invalid")
+		}
+	case "hosted":
+		if !hostedIssuerPattern.MatchString(issuer) || parsed.Scheme != "https" || parsed.Port() != "" || parsed.Host != parsed.Hostname() || parsed.Path != "/auth/v1" {
+			return errors.New("hosted Supabase issuer configuration is invalid")
+		}
+	default:
+		return errors.New("authentication mode must be local or hosted")
+	}
+	return nil
 }
 
 func isLoopback(host string) bool {
@@ -76,7 +111,7 @@ func (v *Validator) Close() {
 }
 
 func (v *Validator) Validate(raw string) (Principal, error) {
-	if v == nil || v.keys == nil || len(raw) == 0 || len(raw) > MaxBearerTokenBytes {
+	if v == nil || v.keys == nil || (v.failed != nil && v.failed.Load()) || len(raw) == 0 || len(raw) > MaxBearerTokenBytes {
 		return Principal{}, errors.New("invalid bearer token")
 	}
 	var parsed claims

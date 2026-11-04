@@ -159,6 +159,8 @@ python-island/.python-dist.tar.gz
 python-island/.pip-audit-cache/
 python-island/.pip-audit-*.json
 .uv-cache/
+# External source checkouts and model weights used by local-only PoCs.
+python-island/tools/scnet-poc/external/
 
 # Keep local source/stem/analysis data and demo media copies out of Git.
 /demo-assets/source/*
@@ -177,3 +179,11 @@ python-island/.pip-audit-*.json
 
 # Turbo Repo
 .turbo
+
+# Local environment profiles and launcher state
+/config/environments/*.env
+/.run/
+/frontend/.env.local
+/frontend/.env.*.local
+!/frontend/.env.local.example
+!/frontend/.env.test.local.example

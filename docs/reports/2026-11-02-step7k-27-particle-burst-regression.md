@@ -1,44 +1,44 @@
-# Step 7k-27 — Particle Burst Demo / Audio Analyze Comparison
+# Step 7k-27 — Particle BurstのDemo/Audio Analyze比較
 
-**Status: partial.** The renderer-side attenuation was reproduced with existing Demo and acoustic-stem Timeline strengths. Newly generated Kick-bound Particle Bursts now receive the existing responsive Kick Binding defaults when applied to the Editor. Frontend automated checks passed. The user's saved Effect parameters and post-fix browser appearance are not available for verification.
+**状態: 部分完了。** 既存DemoとアコースティックstemのTimeline strengthを用いて、Renderer側の減衰を再現しました。新しく生成されたKick連動Particle Burstには、Editor適用時に既存の応答性を高めるKick Binding既定値が設定されます。Frontend自動確認は成功しました。ユーザーの保存済みEffectパラメーターと修正後のブラウザー表示は検証できていません。
 
-## Demo and analyzed-audio comparison
+## Demoと解析済み音声の比較
 
-The Demo Editor starts from `initialEditorBlueprint`, which does not contain a Particle Burst. When one is added through the Demo Editor, `addEffect()` selects `kick.events`, and Step 7k-26's `bindingFor()` supplies Strength 1 / Threshold 0 / Attack 0ms / Release 260ms. The default newly added Burst uses Stage, opacity 1, triggered visibility, Audio Reactive ON, count 32, size 7px, lifetime 1,500ms, speed 420px/s, origin (0.5, 0.5), direction 0°, spread 90°, glow 1.6, opacity boost 1.6, core brightness 1.1, swirl 0.55, and audio influence 1. These are code defaults, not proof of the user's actual Demo settings.
+Demo EditorはParticle Burstを含まない`initialEditorBlueprint`から開始します。Demo Editorで追加すると`addEffect()`が`kick.events`を選び、Step 7k-26の`bindingFor()`がStrength 1 / Threshold 0 / Attack 0ms / Release 260msを設定します。新規Burstの既定値はStage、opacity 1、triggered visibility、Audio Reactive ON、count 32、size 7px、lifetime 1,500ms、speed 420px/s、origin (0.5, 0.5)、direction 0°、spread 90°、glow 1.6、opacity boost 1.6、core brightness 1.1、swirl 0.55、audio influence 1です。これらはコード上の既定値であり、ユーザーの実際のDemo設定を示す証拠ではありません。
 
-After Audio Analyze, `VisualEditor` installs `newEditorBlueprint` (Spectrum Bars and Ink Diffusion on `music.energy`). Blueprint generation is a separate action. The model response supplies its own Effect and Binding values; the OpenAI schema has no fixed Binding defaults. The user's generated/saved Particle Burst values were not supplied, so the actual source, Binding, count, size, lifetime, movement and glow values cannot be asserted from the screenshot. The screenshot does confirm triggered visibility, Audio Reactive ON and opacity 1.
+Audio Analyze後、`VisualEditor`は`newEditorBlueprint`（`music.energy`を使うSpectrum BarsとInk Diffusion）を設定します。Blueprint生成は別操作です。モデル応答が独自のEffectおよびBinding値を返し、OpenAIスキーマには固定Binding既定値がありません。ユーザーが生成/保存したParticle Burstの値は共有されていないため、スクリーンショットから実際のsource、Binding、count、size、lifetime、movement、glow値を断定できません。一方、スクリーンショットでtriggered visibility、Audio Reactive ON、opacity 1は確認できます。
 
-| Item | Demo path (confirmed in code/assets) | Audio Analyze / generated path | Effect on burst | Confidence |
+| 項目 | Demo経路（コード/アセットで確認） | Audio Analyze/生成経路 | Burstへの影響 | 確度 |
 |---|---|---|---|---|
-| Effect kind | `particle-burst` when manually added; not in Demo's starting Blueprint | User confirms Particle Burst; exact generated Blueprint unavailable | Same renderer kind if saved/generated as shown | Demo code / user report |
-| Audio Source | `kick.events` from `addEffect()` | Generated Kick Binding is supported, but actual value unknown | Non-Kick source would not be valid for this event-only Effect | Demo code / actual unknown |
-| Binding Strength / Threshold | `1 / 0` for a new UI-added Kick Binding after Step 7k-26 | API generation response values unknown; schema allows 0–1 | Threshold removes event values at or below it; Strength scales the remainder | Demo code / actual unknown |
-| Attack / Release | `0 / 260ms` for a new UI-added Kick Binding | Generated values unknown | Particle Burst uses per-event `boundFeature()`; Attack/Release do not affect its event particle calculation | Demo code / renderer fact |
-| Visibility / Audio Reactive / Effect opacity | New Burst defaults to triggered / on / 1 | Screenshot: triggered / on / 1 | Triggered mode emits no fallback particles when no event passes Binding | Demo code / screenshot |
-| Count / Size / Lifetime / Speed / Origin / Spread | New Burst defaults: 32 / 7px / 1,500ms / 420px/s / center / 90° | Generated/custom values unknown | Count scales emitted commands; lifetime sets the event window; size/speed affect visibility and movement | Demo code / actual unknown |
-| Timeline Kick Strength | demo1: 217 events, minimum 0.2510, median 1.0, none ≤0.1 | Existing demo4 acoustic-stem Hard Timeline: 138 events, minimum 0.0433, median 0.0992, 69 ≤0.1. Step 7k-25 Middle diagnostics: 395 events, 91 ≤0.1 | With a generic 0.1 threshold, Demo strengths pass while low acoustic strengths are dropped or reduced to near-zero | Existing files/reports; not user's actual crop |
+| Effect種別 | 手動追加時に`particle-burst`。Demo開始時のBlueprintには含まれない | ユーザーはParticle Burstと確認。生成Blueprintの実物は未入手 | 保存/生成値が表示どおりなら同じRenderer種別 | Demoコード/ユーザー報告 |
+| Audio Source | `addEffect()`由来の`kick.events` | Kick Binding生成に対応するが実際の値は不明 | Kick以外のsourceはイベント専用Effectに不適合 | Demoコード/実値不明 |
+| Binding Strength / Threshold | Step 7k-26以後にUI追加したKick Bindingでは`1 / 0` | API生成応答値は不明。スキーマでは0〜1 | Threshold以下のイベント値を除き、Strengthが残りを倍率調整 | Demoコード/実値不明 |
+| Attack / Release | UIで追加した新規Kick Bindingでは`0 / 260ms` | 生成値不明 | Particle Burstはイベントごとに`boundFeature()`を使うため、Attack/Releaseはイベント粒子計算に影響しない | Demoコード/Renderer仕様 |
+| Visibility / Audio Reactive / Effect opacity | 新規Burstの既定値はtriggered / on / 1 | スクリーンショット: triggered / on / 1 | Bindingを通過するイベントがないとtriggeredモードは代替粒子を出さない | Demoコード/スクリーンショット |
+| Count / Size / Lifetime / Speed / Origin / Spread | 新規Burstの既定値: 32 / 7px / 1,500ms / 420px/s / center / 90° | 生成/カスタム値不明 | Countは出力コマンド数、lifetimeはイベント有効時間、size/speedは視認性と移動に影響 | Demoコード/実値不明 |
+| Timeline Kick Strength | demo1: 217件、最小0.2510、中央値1.0、0.1以下なし | 既存demo4アコースティックstemのHard Timeline: 138件、最小0.0433、中央値0.0992、69件が0.1以下。Step 7k-25 Middle診断: 395件、91件が0.1以下 | 一般的な閾値0.1ではDemoのstrengthは通る一方、弱いアコースティックstrengthは除外またはほぼゼロまで低下 | 既存ファイル/報告。ユーザーの実際の切り出しではない |
 
-These strength distributions are normalized detector outputs, not labeled Kick confidence. The demo4 Timeline is an acoustic-stem proxy and is not claimed to be the user's actual 60-second clip or selected Gate Mode.
+これらのstrength分布は検出器出力を正規化したもので、ラベルに基づくKick信頼度ではありません。demo4 Timelineはアコースティックstemによる代用データであり、ユーザーの実際の60秒クリップや選択Gate Modeだとは主張しません。
 
-## Root cause and reproduction
+## 根本原因と再現
 
-The cause is an interaction between Timeline strength distributions and the new Blueprint's Binding defaults, rather than an event/clock/visibility regression:
+原因はイベント/クロック/表示の回帰ではなく、Timeline strength分布と新BlueprintのBinding既定値の組み合わせです。
 
-1. Demo event strengths are much higher than the saved acoustic-stem Timeline's weak events.
-2. Particle Burst evaluates each event directly using `boundFeature(eventStrength, binding)`. This applies the threshold once; it does not also use the continuous `evaluateBinding()` result. If the event is at or below Threshold, it produces no particles.
-3. For strengths just above the threshold, `boundFeature()` is small. Particle count is `ceil(count × (0.32 + response × 0.68))`, while particle opacity is proportional to event strength and `opacityBoost`. A near-threshold hit can therefore emit about 11 faint particles instead of the 30 produced by a Strength 1 event with a generic 0.9/0.1 binding.
-4. For a single fixed test Blueprint (count 32, opacity boost 1.6), demo1-like Strength 1 with Binding 0.9/0.1 produced 30 draw commands. The existing demo4 value 0.052458 with the same Binding produced none. A demo4 value 0.108810 is only slightly above 0.1; after normalization and Binding strength it drives approximately 11 particles at very low opacity.
-5. Applying Strength 1 / Threshold 0 to the same weak 0.052458 event produced 12 commands with opacity above 0.08. That is a concrete renderer-command improvement; perception in the actual browser still needs confirmation.
+1. Demoイベントのstrengthは、保存済みアコースティックstem Timelineの弱いイベントより大幅に高い。
+2. Particle Burstは各イベントを`boundFeature(eventStrength, binding)`で直接評価します。閾値は一度適用され、連続値を返す`evaluateBinding()`の結果も併用するわけではありません。イベントがThreshold以下なら粒子を生成しません。
+3. 閾値をわずかに上回るstrengthでは`boundFeature()`の値も小さくなります。粒子数は`ceil(count × (0.32 + response × 0.68))`で、不透明度はイベントstrengthと`opacityBoost`に比例します。そのため閾値付近のイベントでは、一般的な0.9/0.1 BindingでStrength 1のイベントが30個生成するのに対し、薄い粒子が約11個だけ出る場合があります。
+4. 固定テストBlueprint（count 32、opacity boost 1.6）では、demo1相当のStrength 1とBinding 0.9/0.1で描画コマンド30件を生成しました。同じBindingでは既存demo4値0.052458は何も生成しません。demo4値0.108810は0.1をわずかに超えるだけで、正規化とBinding strength適用後は非常に低い不透明度の粒子を約11個駆動します。
+5. 同じ弱いイベント0.052458にStrength 1 / Threshold 0を適用すると、不透明度0.08超のコマンドが12件生成されました。これはRendererコマンド上の具体的な改善ですが、実ブラウザーでの視認性は別途確認が必要です。
 
-Visibility is not double-gating the event: triggered mode only suppresses the always-mode fallback when the Burst returns no event commands. `audioReactive=false` would mute the response, but the user's screenshot shows it on. Particle event time is compared against renderer frame time and reconstructed for arbitrary seeks; the event remains active for its configured lifetime. No frame-state or Preview/WebM divergence was found in this path. Attack and Release are not read by Particle Burst's per-event rendering path.
+Visibilityがイベントを二重にゲートしているわけではありません。triggeredモードはBurstがイベントコマンドを返さない場合にalwaysモードの代替表示を抑えるだけです。`audioReactive=false`なら応答は止まりますが、ユーザーのスクリーンショットでは有効です。粒子イベント時刻はRendererフレーム時刻と比較され、任意のシーク位置でも再構築されます。イベントは設定されたlifetimeの間有効です。この経路にフレーム状態やPreview/WebMの差は見つかりませんでした。Particle Burstのイベント単位描画経路はAttackとReleaseを読みません。
 
-## Minimal fix
+## 最小修正
 
-`prepareGeneratedBlueprint()` now runs only after a newly generated response has been validated and before it is placed in Editor state. For each generated `particle-burst` with `kick.events`, it sets the existing Binding values Strength 1 and Threshold 0. It leaves Attack, Release, all Effect parameters, Timeline, and other Bindings unchanged.
+新たに生成した応答の検証後、Editor状態に設定する前にのみ`prepareGeneratedBlueprint()`を実行するようにしました。`kick.events`を使う各`particle-burst`について、既存Binding値のStrengthを1、Thresholdを0にします。Attack、Release、すべてのEffectパラメーター、Timeline、その他のBindingは変更しません。
 
-Project restoration and previously saved Blueprints do not use this preparation function and are not rewritten. Users can still edit the generated Binding after it enters the Editor. No detector gates, event algorithm, API contract, schema, persistence, or Renderer formula changed.
+Project復元と保存済みBlueprintではこの準備関数を使わず、値も書き換えません。生成BindingはEditorに反映後もユーザーが編集できます。検出ゲート、イベントアルゴリズム、API契約、スキーマ、永続化、Renderer式は変更していません。
 
-## Regression coverage
+## 回帰テスト範囲
 
 - Same Particle Burst Blueprint compared on a Demo-strength event and exact weak Strength `0.05245834928566786` taken from the existing demo4 Timeline.
 - Generic 0.9 / 0.1 Binding reproduces 30 Demo commands versus no commands for the weak acoustic event.
@@ -46,24 +46,24 @@ Project restoration and previously saved Blueprints do not use this preparation 
 - UI integration loads a generated Blueprint containing a Particle Burst with generic Binding values and verifies that only its Kick Binding is normalized; Attack and Release remain 60ms / 260ms.
 - Existing renderer tests cover triggered/always behavior, source compatibility, lifetime, count limits, opacity, deterministic seeking, and Preview/WebM shared rendering.
 
-## Verification
+## 検証
 
-- Frontend: **164 tests passed** across 13 files.
-- `npm run typecheck`: passed.
-- `npm run lint`: passed.
-- `npm run build`: passed.
-- `git diff --check`: passed; all changed files also scanned for trailing whitespace.
-- Python / Go were not changed; their suites were not rerun for this Frontend-only change.
-- No OpenAI request or hosted operation was performed.
+- Frontend: **13ファイル、164件成功**。
+- `npm run typecheck`: 成功。
+- `npm run lint`: 成功。
+- `npm run build`: 成功。
+- `git diff --check`: 成功。変更ファイルすべての行末空白も確認。
+- Python/Goは変更していないため、Frontendのみの変更に際して各テスト一式を再実行していません。
+- OpenAIリクエストやHosted環境への操作は行っていません。
 
-## Changed files
+## 変更ファイル
 
-- `frontend/src/VisualEditor.tsx` — normalize only generated Kick-bound Particle Burst Binding strength/threshold.
-- `frontend/src/editor-renderer.test.ts` — reproduce measured Demo/acoustic Timeline strength difference and verify draw-command recovery.
-- `frontend/src/visual-editor.test.tsx` — verify generated Blueprint application and preservation of unrelated Binding parameters.
-- `docs/reports/2026-11-02-step7k-27-particle-burst-regression.md` — findings and verification.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md` — current status and remaining acceptance.
+- `frontend/src/VisualEditor.tsx` — 生成されたKick連動Particle BurstのBinding strength/thresholdのみを正規化。
+- `frontend/src/editor-renderer.test.ts` — Demo/アコースティックTimelineのstrength差を再現し、描画コマンド回復を検証。
+- `frontend/src/visual-editor.test.tsx` — 生成Blueprint適用と無関係なBindingパラメーターの保持を検証。
+- `docs/reports/2026-11-02-step7k-27-particle-burst-regression.md` — 調査結果と検証。
+- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md` — 現在の状態と残る受け入れ確認。
 
-## Remaining verification
+## 残る検証
 
-The user's actual generated Blueprint and source crop were not provided; its original Binding and Effect parameters remain unknown. Windows Chrome visual acceptance after this fix is pending. Low Strength events now produce commands, but their perceived visibility depends on the generated/saved size, color, glow, region and opacity settings. Existing saved Projects are intentionally unchanged and may require manual Binding adjustment to expose weak Kick events.
+ユーザーの実際の生成Blueprintとソース切り出しは共有されておらず、元のBindingとEffectパラメーターは不明です。この修正後のWindows Chromeでの視覚的受け入れ確認は未実施です。低Strengthイベントでも描画コマンドは生成されますが、実際に見えるかは生成/保存されたsize、color、glow、region、opacity設定によります。既存の保存済みProjectは意図的に変更していないため、弱いKickイベントを表示するにはBindingを手動調整する場合があります。

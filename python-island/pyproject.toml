@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Local CPU audio separation and feature timeline generation"
 requires-python = ">=3.14,<3.15"
 dependencies = [
-  "demucs==4.1.0",
   "numpy==2.3.4",
   "torch==2.14.1",
+  "tqdm==4.70.1",
 ]
 
 [project.optional-dependencies]
@@ -15,6 +15,9 @@ dev = [
   "pip-audit==2.9.0",
   "pytest==9.0.3",
   "ruff==0.14.4",
+]
+demucs-dev = [
+  "demucs==4.1.0",
 ]
 
 [project.scripts]
@@ -45,6 +48,7 @@ markers = ["integration: uses the cached Demucs pretrained model and CPU inferen
 [tool.ruff]
 line-length = 100
 target-version = "py314"
+extend-exclude = ["src/python_island/_scnet"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -55,3 +59,7 @@ strict = true
 mypy_path = "src"
 packages = ["python_island"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["python_island._scnet.*"]
+ignore_errors = true

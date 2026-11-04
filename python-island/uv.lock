@@ -26,9 +26,9 @@ name = "audio-reactive-visual-compiler-python-island"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "demucs", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "tqdm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 
 [package.optional-dependencies]
@@ -38,18 +38,22 @@ dev = [
     { name = "pytest", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "ruff", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
+demucs-dev = [
+    { name = "demucs", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "demucs", specifier = "==4.1.0" },
+    { name = "demucs", marker = "extra == 'demucs-dev'", specifier = "==4.1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==1.18.2" },
     { name = "numpy", specifier = "==2.3.4" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = "==2.9.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.14.4" },
     { name = "torch", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "tqdm", specifier = "==4.70.1" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["demucs-dev", "dev"]
 
 [[package]]
 name = "boolean-py"

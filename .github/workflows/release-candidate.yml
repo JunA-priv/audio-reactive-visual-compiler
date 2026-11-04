@@ -1,0 +1,56 @@
+name: Main Release Candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'frontend/**'
+      - 'python-island/**'
+      - 'supabase/**'
+      - 'Dockerfile'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build Go API binary
+        working-directory: api
+        run: mkdir -p ../candidate/api && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o ../candidate/api/arvc-api ./cmd/server
+      - name: Build Frontend
+        working-directory: frontend
+        run: npm ci && npm run typecheck && npm run lint && npm test && npm run build
+      - name: Check forward migration diff
+        run: scripts/tests/check-forward-migrations.sh HEAD^
+      - name: Record migration inventory and release metadata
+        run: |
+          mkdir -p candidate/frontend candidate/supabase/migrations
+          cp -R frontend/dist/. candidate/frontend/
+          git diff --name-only HEAD^ HEAD -- 'supabase/migrations/*.sql' | while read -r path; do
+            [ -z "$path" ] || cp "$path" candidate/supabase/migrations/
+          done
+          git rev-parse HEAD > candidate/commit.txt
+          find candidate/supabase/migrations -maxdepth 1 -type f -printf '%f\n' | sort > candidate/migrations.txt
+          tar -czf release-candidate.tar.gz candidate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-candidate-${{ github.sha }}
+          path: release-candidate.tar.gz
+          if-no-files-found: error
+          retention-days: 14

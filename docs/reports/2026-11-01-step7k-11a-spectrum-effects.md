@@ -1,51 +1,51 @@
-# Step 7k-11a — Frequency Spectrum Effects
+# Step 7k-11a — 周波数Spectrum Effect
 
-**Status: partial**
+**状態：一部完了**
 
-## Result
+## 結果
 
-Added an optional `frequencySpectrum` Timeline v1 field generated from the already decoded music PCM. It uses a 4096-sample Hann STFT, 20ms hop, 32 logarithmically spaced bands from 40Hz to `min(16kHz, Nyquist)`, whole-clip p99 normalization over positive `log1p(32 * bandRMS)` values, and row-major uint8 values in `[0,255]`. Silence produces zeros. With 44.1kHz decoded audio the maximum is 384,000 values for the four-minute Python Island duration limit.
+既にdecode済みの音楽PCMから生成する任意のTimeline v1 field `frequencySpectrum`を追加しました。4096 sampleのHann STFT、20ms hop、40Hzから`min(16kHz, Nyquist)`までを対数分割した32 band、正の`log1p(32 * bandRMS)`値に対する全clip p99 normalizationを使います。出力はrow-majorのuint8値（0〜255）です。無音は0になります。44.1kHz decode音声で最大384,000値です（Python Islandの4分duration制限に基づく）。
 
-Added `spectrum-bars` (32 segmented or continuous bars) and `spectrum-line`. Their shape uses FFT bands interpolated at render time. The existing seven-source Binding provides additional response strength. Attack/release is deterministic and cached from Timeline start; no prior-frame state is used. Missing Spectrum data emits no commands. Both Effects share existing color, opacity, visibility, Region clip, and `renderEditorFrame` paths.
+`spectrum-bars`（32本の分割barまたは連続bar）と`spectrum-line`を追加しました。描画時にFFT band間を補間して形状を求めます。既存7種類のBindingが追加のresponse strengthを与えます。attack/releaseは決定的で、Timeline開始位置からcacheし、前frameの状態は使いません。Spectrum dataがない場合はcommandを出力しません。どちらのEffectも既存のcolor、opacity、visibility、Region clip、`renderEditorFrame`経路を共有します。
 
-The new UI-only Category `EQ / Spectrum` contains exactly the two new Effects. The prior Waveform membership is unchanged. Category remains derived from Effect kind and is absent from Blueprint/Project storage.
+UI専用Category `EQ / Spectrum`には新しいEffectを2種類だけ含めます。従来のWaveform membershipは変更しません。CategoryはEffect kindから導出され、Blueprint/Project storageには含まれません。
 
-## Capacity and processing
+## 容量と処理
 
-- Synthetic 60-second full Feature Timeline (including existing waveform peaks, stem features, and Spectrum): **1,595,177 bytes** compact JSON. The API limit remains 2 MiB.
-- Go request test with 60 seconds, quantized Spectrum, and all five signed peak arrays: **688,599 bytes**; validated under the same 2 MiB limit.
-- Demo Spectrum sidecars, generated as compact JSON:
-  - demo1, 180,200ms / 9,010 frames: **906,995 bytes**, FFT extraction **2.485s**.
-  - demo2, 166,040ms / 8,302 frames: **826,015 bytes**, FFT extraction **2.283s**.
-  - demo3, 118,054ms / 5,903 frames: **588,371 bytes**, FFT extraction **1.566s**.
-- Demo processing re-decoded only each existing music file and computed FFT; no Demucs separation was run. Existing audio, stems, Timelines, and peaks were left intact. Sidecars were added under new generated/public paths. New demo sidecars are Git-ignored, and the Vite publication approval gate is unchanged.
+- 既存のwaveform peaks、stem feature、Spectrumを含む合成60秒Feature Timeline：compact JSONで**1,595,177 bytes**。API上限は引き続き2 MiB。
+- 60秒、quantize済みSpectrum、5種類すべてのsigned peak arrayを含むGo request test：**688,599 bytes**。同じ2 MiB上限以内で検証。
+- compact JSONとして生成したDemo Spectrum sidecar：
+  - demo1、180,200ms / 9,010 frame：**906,995 bytes**、FFT抽出**2.485s**。
+  - demo2、166,040ms / 8,302 frame：**826,015 bytes**、FFT抽出**2.283s**。
+  - demo3、118,054ms / 5,903 frame：**588,371 bytes**、FFT抽出**1.566s**。
+- Demo処理では既存音声fileだけを再decodeしてFFTを計算しました。Demucs separationは行っていません。既存音声、stem、Timeline、peakは保持し、新しいsidecarを新規generated/public pathに追加しました。新しいDemo sidecarはGit対象外で、Vite公開gateは変更していません。
 
-## Changed files
+## 変更ファイル
 
-- `python-island/src/python_island/features.py`: Spectrum extraction and Timeline field.
-- `python-island/tests/test_features.py`: tone, silence, Nyquist, size, and serialization tests.
-- `frontend/src/editor-model.ts`, `frontend/src/renderer.ts`: Spectrum types, validation, deterministic interpolation/followers, and draw commands.
-- `frontend/src/VisualEditor.tsx`: independent Category, defaults, controls, and missing-data status.
-- `frontend/src/demo-assets.ts`: optional versioned sidecar loading.
-- `frontend/src/editor-renderer.test.ts`, `frontend/src/visual-editor.test.tsx`, `frontend/src/demo-assets.test.ts`, `frontend/src/project-file.test.ts`, `frontend/src/cloud-project.test.ts`: rendering, Category, missing-data, Project/Cloud v1, and loading coverage.
-- `api/internal/service/input.go`, `api/internal/service/input_spectrum_test.go`: strict optional Timeline validation and fixed API cap coverage.
-- `api/internal/blueprint/blueprint.go`, `api/internal/blueprint/blueprint_test.go`: Effect parameters and validation.
-- `api/internal/service/openai.go`, `api/internal/service/openai_test.go`: Structured Output schema and compact-prompt checks. No API call was made.
-- `.gitignore`: exclude the newly generated public Spectrum sidecars while retaining existing demo publication controls.
-- `demo-assets/generated/demo{1,2,3}-step7k11/spectrum.json`, `frontend/public/demo/demo{1,2,3}.frequency-spectrum-v1.json`: new sidecars only.
-- `docs/API_CONTRACTS.md`, `docs/ARCHITECTURE.md`, `docs/BLUEPRINT_SPEC.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/TEST_STRATEGY.md`, `docs/VISUAL_EFFECT_ROADMAP.md`, `demo-assets/generated/README.md`, and `CURRENT_TASK.md`: updated contract and current state.
+- `python-island/src/python_island/features.py`：Spectrum抽出とTimeline field。
+- `python-island/tests/test_features.py`：tone、silence、Nyquist、size、serialization test。
+- `frontend/src/editor-model.ts`、`frontend/src/renderer.ts`：Spectrum型、検証、決定的補間/follower、描画command。
+- `frontend/src/VisualEditor.tsx`：独立Category、既定値、controls、data欠落時の状態表示。
+- `frontend/src/demo-assets.ts`：version付きsidecarの任意読み込み。
+- `frontend/src/editor-renderer.test.ts`、`frontend/src/visual-editor.test.tsx`、`frontend/src/demo-assets.test.ts`、`frontend/src/project-file.test.ts`、`frontend/src/cloud-project.test.ts`：描画、Category、data欠落、Project/Cloud v1、読み込み範囲。
+- `api/internal/service/input.go`、`input_spectrum_test.go`：strictな任意Timeline検証と固定API上限。
+- `api/internal/blueprint/blueprint.go`、`blueprint_test.go`：Effect parameterと検証。
+- `api/internal/service/openai.go`、`openai_test.go`：Structured Output schemaとcompact prompt確認。API callは行っていません。
+- `.gitignore`：新規生成するpublic Spectrum sidecarを除外し、既存Demo公開制御は維持。
+- `demo-assets/generated/demo{1,2,3}-step7k11/spectrum.json`、`frontend/public/demo/demo{1,2,3}.frequency-spectrum-v1.json`：sidecarのみ新規追加。
+- `docs/API_CONTRACTS.md`、`docs/ARCHITECTURE.md`、`docs/BLUEPRINT_SPEC.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md`、`docs/TEST_STRATEGY.md`、`docs/VISUAL_EFFECT_ROADMAP.md`、`demo-assets/generated/README.md`、`CURRENT_TASK.md`：contractと現状を更新。
 
-## Tests
+## Test
 
-- Python: `python -m pytest -q` — **24 passed**; `mypy --strict` — passed. `ruff check src tests --ignore E501` passed. Default Ruff reported existing E501 line-length violations in pre-existing code/tests; new lines were formatted within the project line limit.
-- Frontend: `npm test -- --run` — **115 passed**; `npm run typecheck`, `npm run lint`, `npm run build` — passed.
-- Python: `.venv/bin/python -m pytest -q` — **24 passed**; `mypy --strict` — passed; `ruff check src tests --ignore E501` — passed. Default Ruff still reports legacy E501 violations in pre-existing files.
-- Go: focused Spectrum/Blueprint/schema/prompt tests — passed; `go vet ./...` — passed.
-- Full Go suite was attempted. The existing `TestOpenAIResponsesRequestUsesStrictStructuredOutput` could not bind its IPv6 loopback `httptest` listener in this sandbox (`operation not permitted`), so the full service suite could not be certified here.
-- `git diff --check` — passed.
+- Python `python -m pytest -q`：**24 test成功**。`mypy --strict`成功。`ruff check src tests --ignore E501`成功。通常のRuffは既存source/testのE501行長違反を報告しました。新規行はprojectの行長基準内に整形しました。
+- Frontend `npm test -- --run`：**115 test成功**。`npm run typecheck`、`npm run lint`、`npm run build`成功。
+- Python `.venv/bin/python -m pytest -q`：**24 test成功**。`mypy --strict`成功。`ruff check src tests --ignore E501`成功。通常のRuffでは既存fileのE501違反が残ります。
+- Go Spectrum/Blueprint/schema/prompt対象test成功。`go vet ./...`成功。
+- Go全suiteを試しましたが、既存`TestOpenAIResponsesRequestUsesStrictStructuredOutput`がsandbox内IPv6 loopbackの`httptest` listenerをbindできず（`operation not permitted`）、service suite全体は確認できませんでした。
+- `git diff --check`成功。
 
-## Compatibility and remaining checks
+## 互換性と未確認事項
 
-Blueprint v1, Feature Timeline v1, `.arvproj v1`, Cloud Envelope/Project v1, all seven Binding sources, and Preview/WebM renderer routing remain. Old Timeline objects omit `frequencySpectrum` and continue to validate. Raw matrix values are not in `CompactFeatures` or OpenAI prompt content. No dependency, DB, migration, Auth, quota, Hosted, or API size-limit change was made.
+Blueprint v1、Feature Timeline v1、`.arvproj v1`、Cloud Envelope/Project v1、7種類すべてのBinding source、Preview/WebM renderer経路は維持しています。旧Timelineでは`frequencySpectrum`を省略でき、従来どおり検証を通ります。raw matrix値は`CompactFeatures`やOpenAI prompt contentに含めません。dependency、DB、migration、Auth、quota、Hosted環境、API size limitは変更していません。
 
-Status is partial because the complete Go suite is blocked by the existing sandbox IPv6 listener restriction. Real browser pixel/compositing quality and WebM playback are also not visually inspected in this environment.
+Go suite全体は既存のsandbox IPv6 listener制限で阻まれています。また、実ブラウザーのpixel/合成品質とWebM再生は視覚確認できていません。

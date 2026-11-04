@@ -1,51 +1,51 @@
-# Step 7k-11g — Ink Diffusion expansion and shape variation
+# Step 7k-11g — Ink Diffusionの拡張と形状変化
 
-**status: partial** — Renderer and deterministic geometry changes are implemented and automated checks pass. Browser WebGL2 pixels are unavailable here, so visual acceptance and actual shader coverage remain unverified.
+**状態：一部完了** — Rendererと決定的geometryの変更を実装し、自動検査は成功しました。この環境ではbrowser WebGL2 pixelを確認できず、視覚受け入れと実際のshader coverageは未確認です。
 
-## Implementation
+## 実装
 
 ### WebGL2 density field
 
-- Added a strong Gaussian-like central density core so the first/quiet state has a visible origin.
-- Added four satellite diffusion sources. Their orbit angle, radius, and asymmetry vary by Effect ID / Blueprint seed and absolute-time phases, so independent Ink Effects and later timestamps do not collapse to one repeated vortex silhouette.
-- A deterministic diffusion amount derived from absolute time, existing `diffusionSpeed`, and the existing smoothed Binding response drives a broad density envelope and outward expansion front. Binding response also increases front reach, flow, vortex movement and alpha density.
-- Expanded the former three-vortex warp into four local vortices with independent directions/radii. Two noise-warp scales move at different temporal frequencies, and a radial/angular filament field adds multiple outward threads rather than a single ribbon direction.
-- Gradient pigment still uses the full Canvas coordinate space and configured angle. Custom Color remains one pigment with density-based tonal variation.
+- 初期/静穏状態でも開始位置が見えるよう、密度の高いGaussian風central coreを追加。
+- satellite diffusion sourceを4つ追加。orbit角度、半径、非対称性はEffect ID/Blueprint seedと絶対時刻phaseで変え、別々のInk Effectや後のtimestampが同じvortex形状へ重ならないようにします。
+- 絶対時刻、既存`diffusionSpeed`、平滑化済みBinding responseから決定的なdiffusion量を求め、幅広い密度envelopeと外向き拡張frontを制御します。Binding responseはfront到達範囲、flow、vortex移動、alpha密度も増やします。
+- 旧3-vortex warpを、方向/半径が独立した局所vortex 4つに拡張。異なる時間周波数で動く2種類のnoise-warp scaleを使い、radial/angular filament fieldで単一ribbon方向ではなく複数の外向きthreadを加えます。
+- Gradient pigmentは引き続きCanvas全座標と指定角度を使います。Custom Colorは単一pigmentで、密度に応じてtoneを変えます。
 
 ### Canvas2D fallback
 
-Replaced the lower-edge rising ribbon fallback with a central core and three orbiting satellite clouds. Each has deterministic 48-point asymmetric contours and an inner/outer density layer. Five curved radial branches extend from the center. At the tested 8-second quiet state, fallback contour bounds exceed 60% of the Stage Region width; this is a geometry bound, not a rasterized area-coverage measurement. Higher Binding response increases the tested fallback bounds further.
+Canvas2D fallbackを、下端から上がるribbonからcentral coreと周回するsatellite cloud 3つへ変更しました。それぞれ48点の決定的な非対称輪郭と内外の密度layerを持ちます。中心から曲線radial branchを5本伸ばします。検査した8秒後の静穏状態では、fallback輪郭の幅がStage Region幅の60%を超えます。これはgeometry上の幅であり、raster化した面積coverageの測定ではありません。Binding responseが強いと検査対象fallbackの範囲はさらに増加します。
 
-## Determinism and contracts
+## 決定性とcontract
 
-All time variation is computed from the evaluated timestamp, Effect ID, Blueprint seed, existing Timeline response and existing parameters. There is no prior-frame state. Existing response smoothing and WebGL2 context cache/fallback remain. Region clip, draw order, opacity, Global Gradient / Custom Color and `renderEditorFrame` are unchanged.
+すべての時間変化は、評価timestamp、Effect ID、Blueprint seed、既存Timeline response、既存parameterから計算します。前frame状態はありません。既存response平滑化とWebGL2 context cache/fallbackを維持します。Region clip、描画順、opacity、Global Gradient/Custom Color、`renderEditorFrame`は変更していません。
 
-No new optional field was needed. Blueprint, Timeline, `.arvproj`, Cloud Envelope and Project versions stay at v1. Frontend/Go validators, OpenAI schema, Python Island, other Effects, dependencies, DB/Auth and APIs were not changed.
+新しい任意fieldは不要でした。Blueprint、Timeline、`.arvproj`、Cloud Envelope、Projectはv1のままです。Frontend/Go validator、OpenAI schema、Python Island、他Effect、dependency、DB/Auth、APIは変更していません。
 
-## Tests and verification
+## Testと検証
 
-- Focused renderer / shader tests — passed, 48 tests across 2 files.
-- `npm test -- --run` — passed, 128 tests / 12 files.
-- `npm run typecheck` — passed.
-- `npm run lint` — passed.
-- `npm run build` — passed (Vite bundle 366.67 kB; 112.25 kB gzip).
-- `GOCACHE=/tmp/arvc-step7k11f-go-cache go test ./internal/blueprint ./internal/projects` — passed.
-- Targeted OpenAI schema / normalization tests — passed: Binding source enum, Ink schema defaults, normalizers and strict schema subset.
-- `GOCACHE=/tmp/arvc-step7k11f-go-cache go vet ./...` — passed.
-- `git diff --check` — passed.
+- Renderer/shader対象test — 2 file、48 test成功。
+- `npm test -- --run` — 12 file、128 test成功。
+- `npm run typecheck` — 成功。
+- `npm run lint` — 成功。
+- `npm run build` — 成功（Vite bundle 366.67 kB、gzip後112.25 kB）。
+- `GOCACHE=/tmp/arvc-step7k11f-go-cache go test ./internal/blueprint ./internal/projects` — 成功。
+- OpenAI schema/normalization対象test — Binding source enum、Ink schema既定値、normalizer、strict schema subsetが成功。
+- `GOCACHE=/tmp/arvc-step7k11f-go-cache go vet ./...` — 成功。
+- `git diff --check` — 成功。
 
-The broader targeted service regex also selected HTTP mock tests that start `httptest.NewServer`; those tests cannot bind sandbox IPv6 loopback (`listen tcp6 [::1]:0: operation not permitted`). The pure schema/normalization tests listed above ran separately and passed. Go code/schema did not change in this step.
+広めのservice test regexでは`httptest.NewServer`を起動するHTTP mock testも選ばれましたが、sandboxのIPv6 loopbackへbindできませんでした（`listen tcp6 [::1]:0: operation not permitted`）。上記のschema/normalization単体testは別途実行し、成功しました。このstepではGo code/schemaを変更していません。
 
-Renderer tests verify same-timestamp command equality, out-of-order seek equality, distinct time payloads, fallback contour extent growth at 0/3/8 seconds, greater than 60% Region-width reach at 8 seconds, increased bounds for strong versus quiet response, and Region clip command execution. Static shader tests check the core, expansion/front, multiple phases, multi-scale warp and vortex structure. These tests do not compile or rasterize the GLSL.
+Renderer testでは、同じtimestampでのcommand一致、順序を変えたseekの一致、異なる時刻payload、0/3/8秒時点でのfallback輪郭範囲拡大、8秒時点でRegion幅の60%を超える広がり、静穏時に比べた強response時の範囲増加、Region clip command実行を検証します。shader静的testではcore、拡張/front、複数phase、複数scale warp、vortex構造を確認します。これらのtestはGLSLのcompile/raster化を行いません。
 
-## Not verified
+## 未確認事項
 
-No browser, GPU-backed WebGL2 context, or GLSL compiler is installed. Consequently actual shader compile/link, rasterized central core and 60–90% Region coverage, visual difference at 0/3/8 seconds, demo appearance, real response strength, FPS, context restore and WebM playback/pixel parity are unverified. Do not treat the Canvas2D contour-bound test or static source inspection as GPU visual acceptance.
+browser、GPU-backed WebGL2 context、GLSL compilerはインストールされていません。そのため、実際のshader compile/link、raster化されたcentral coreとRegionの60〜90% coverage、0/3/8秒での見た目の変化、Demo表示、実際のresponse強度、FPS、context restore、WebM再生/pixel一致は未確認です。Canvas2D輪郭範囲testやsource静的確認をGPU視覚受け入れと見なさないでください。
 
-## Changed files
+## 変更ファイル
 
-- `frontend/src/ink-webgl.ts` — central-core density field, seeded orbiting sources, outward front, multi-phase warps, varied vortex field, broader filaments and response-driven coverage.
-- `frontend/src/renderer.ts` — deterministic diffusion uniform and broader center/radial Canvas2D fallback.
-- `frontend/src/editor-renderer.test.ts` — time/seek/coverage/response/clip checks for shader payload and fallback geometry.
-- `frontend/src/ink-webgl.test.ts` — static shader structure assertions.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/VISUAL_EFFECT_ROADMAP.md` — status, design and visual acceptance limits.
+- `frontend/src/ink-webgl.ts` — central-core density field、seed付き周回source、外向きfront、複数phase warp、多様なvortex field、拡張filament、response駆動coverage。
+- `frontend/src/renderer.ts` — 決定的diffusion uniformと、広がりを増したcenter/radial Canvas2D fallback。
+- `frontend/src/editor-renderer.test.ts` — shader payload/fallback geometryについてtime/seek/coverage/response/clipを確認。
+- `frontend/src/ink-webgl.test.ts` — shader構造の静的assertion。
+- `CURRENT_TASK.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md`、`docs/ARCHITECTURE.md`、`docs/TEST_STRATEGY.md`、`docs/VISUAL_EFFECT_ROADMAP.md` — 状態、設計、視覚受け入れの制約。

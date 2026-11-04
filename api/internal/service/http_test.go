@@ -352,6 +352,50 @@ func TestLocalCORSAllowsIdempotencyHeader(t *testing.T) {
 	}
 }
 
+func TestHostedCORSRequiresExactConfiguredOriginAndDoesNotSkipAuth(t *testing.T) {
+	origin := "https://arvc.example.com"
+	if err := ValidateHostedOrigin(origin); err != nil {
+		t.Fatal("valid HTTPS origin rejected")
+	}
+	for _, invalid := range []string{"*", "null", "https://.", "https://arvc.example.com:65536", "https://arvc.example.com:443", "https://arvc.example.com/path", "http://arvc.example.com", "https://user@arvc.example.com"} {
+		if ValidateHostedOrigin(invalid) == nil {
+			t.Fatalf("invalid origin accepted: %q", invalid)
+		}
+	}
+	e := NewServer(Config{CORSOrigins: []string{origin}})
+	r := httptest.NewRequest(http.MethodOptions, "/api/v1/blueprints/generate", nil)
+	r.Header.Set("Origin", origin)
+	r.Header.Set("Access-Control-Request-Headers", "authorization,content-type,idempotency-key")
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent || w.Header().Get("Access-Control-Allow-Origin") != origin {
+		t.Fatalf("allowed preflight status=%d origin=%q", w.Code, w.Header().Get("Access-Control-Allow-Origin"))
+	}
+	r = httptest.NewRequest(http.MethodOptions, "/api/v1/blueprints/generate", nil)
+	r.Header.Set("Origin", "https://arvc.example.com.evil")
+	w = httptest.NewRecorder()
+	e.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden || w.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("denied preflight status=%d", w.Code)
+	}
+	r = httptest.NewRequest(http.MethodOptions, "/api/v1/blueprints/generate", nil)
+	r.Header.Add("Origin", origin)
+	r.Header.Add("Origin", "https://other.example.com")
+	w = httptest.NewRecorder()
+	e.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("duplicate Origin headers accepted: status=%d", w.Code)
+	}
+	r = httptest.NewRequest(http.MethodPost, "/api/v1/blueprints/generate", strings.NewReader(validRequest))
+	r.Header.Set("Origin", origin)
+	r.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	w = httptest.NewRecorder()
+	e.ServeHTTP(w, r)
+	if w.Code != http.StatusServiceUnavailable && w.Code != http.StatusUnauthorized {
+		t.Fatalf("request unexpectedly bypassed authentication: %d", w.Code)
+	}
+}
+
 func TestInputTokenLimitAndDuplicateKeyNeverGenerate(t *testing.T) {
 	gen := &fakeGenerator{output: []byte(FixtureBlueprint), countTokens: 8001}
 	budget := &fakeBudget{reservation: aibudget.Reservation{ID: "00000000-0000-4000-8000-000000000099", Model: OpenAIModel, MaxInputTokens: 8000, MaxOutputTokens: 4000}}

@@ -1,0 +1,79 @@
+name: Backend and Database CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'supabase/**'
+      - 'scripts/tests/**'
+      - 'Dockerfile'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'supabase/**'
+      - 'scripts/tests/**'
+      - 'Dockerfile'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+      - run: go test -race ./...
+        working-directory: api
+      - run: go vet ./...
+        working-directory: api
+
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Reject destructive changed migrations
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/tests/check-forward-migrations.sh "$BASE_SHA"
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.84.2
+      - name: Apply new migration over sentinel user and quota data
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration_queue=supabase/migrations/20261105000100_step7k50b_audio_analysis_jobs.sql
+          migration_quota=supabase/migrations/20261105000200_step7k50d_audio_job_quota_idempotency.sql
+          temp_dir="$(mktemp -d)"
+          mv "$migration_queue" "$temp_dir/queue.sql"
+          mv "$migration_quota" "$temp_dir/job-quota.sql"
+          restore_migration() {
+            if [[ -f "$temp_dir/queue.sql" ]]; then mv "$temp_dir/queue.sql" "$migration_queue"; fi
+            if [[ -f "$temp_dir/job-quota.sql" ]]; then mv "$temp_dir/job-quota.sql" "$migration_quota"; fi
+            rm -rf "$temp_dir"
+          }
+          trap restore_migration EXIT
+          supabase db start
+          docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-preservation-before.sql
+          mv "$temp_dir/queue.sql" "$migration_queue"
+          mv "$temp_dir/job-quota.sql" "$migration_quota"
+          supabase migration up --local
+          docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-preservation-after.sql
+          docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-audio-analysis-jobs.sql
+          docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50d-audio-job-idempotency.sql
+          supabase db lint --local --fail-on error
+          restore_migration
+      - name: Stop disposable Supabase stack
+        if: always()
+        run: supabase stop --no-backup

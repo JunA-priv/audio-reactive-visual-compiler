@@ -100,9 +100,9 @@ describe('VisualEditor interactions', () => {
     act(() => root.unmount());
   });
 
-  it('starts a new Editor with the ordered Spectrum Bars and Ink Diffusion defaults while keeping the legacy demo fixture', () => {
+  it('starts a new Editor with the ordered Spectrum Bars, Ink Diffusion, and Shockwave defaults', () => {
     validateBlueprint(newEditorBlueprint);
-    expect(newEditorBlueprint.effects.map(({ kind }) => kind)).toEqual(['spectrum-bars', 'ink-diffusion']);
+    expect(newEditorBlueprint.effects.map(({ kind }) => kind)).toEqual(['spectrum-bars', 'ink-diffusion', 'shockwave']);
     expect(initialEditorBlueprint.effects.map(({ kind }) => kind)).toContain('waveform-bars');
     expect(initialEditorBlueprint.effects).toHaveLength(5);
     expect(newEditorBlueprint.effects.map((effect) => ({
@@ -116,18 +116,21 @@ describe('VisualEditor interactions', () => {
     }))).toEqual([
       { kind: 'spectrum-bars', regionId: 'region-stage', color: '#91e8ff', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'always', audioReactive: true },
       { kind: 'ink-diffusion', regionId: 'region-stage', color: '#8b5cf6', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'always', audioReactive: true },
+      { kind: 'shockwave', regionId: 'region-stage', color: '#8b5cf6', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'triggered', audioReactive: true },
     ]);
     expect(newEditorBlueprint.bindings).toEqual([
       { id: 'binding-effect-spectrum-bars-default', effectId: 'effect-spectrum-bars-default', source: 'music.energy', strength: 0.9, threshold: 0.1, attackMs: 60, releaseMs: 260 },
       { id: 'binding-effect-ink-diffusion-default', effectId: 'effect-ink-diffusion-default', source: 'music.energy', strength: 0.9, threshold: 0.1, attackMs: 60, releaseMs: 260 },
+      { id: 'binding-effect-shockwave-default', effectId: 'effect-shockwave-default', source: 'kick.events', strength: 1, threshold: 0, attackMs: 0, releaseMs: 260 },
     ]);
     expect(newEditorBlueprint.effects[0]).toMatchObject({ barWidth: 0.72, spacing: 0.12, amplitudeScale: 1.35, glowIntensity: 1.15, segmented: true, segmentsPerBar: 12, attackMs: 35, releaseMs: 180 });
     expect(newEditorBlueprint.effects[1]).toMatchObject({ diffusionSpeed: 0.25, flowStrength: 0.4, turbulence: 0.3, inkDensity: 0.65, cloudScale: 0.5, responseTime: 3 });
+    expect(newEditorBlueprint.globalGradient).toEqual({ startColor: '#22d3ee', middleColor: '#8b5cf6', endColor: '#ec4899', angleDeg: 0 });
 
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext().context);
     const host = document.createElement('div'); document.body.append(host);
     const root = createRoot(host); act(() => root.render(<VisualEditor />));
-    expect([...host.querySelectorAll('.effect-list button')].map((button) => button.textContent?.trim())).toEqual(['周波数バーステージ', 'インク拡散ステージ']);
+    expect([...host.querySelectorAll('.effect-list button')].map((button) => button.textContent?.trim())).toEqual(['周波数バーステージ', 'インク拡散ステージ', '衝撃波ステージ']);
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの分類"]')?.value).toBe('EQ / Spectrum');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの種類"]')?.value).toBe('spectrum-bars');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="カラー設定"]')?.value).toBe('global-gradient');
@@ -189,7 +192,7 @@ describe('VisualEditor interactions', () => {
     expect(host.textContent).toContain('Attack（ms）');
     expect(host.textContent).toContain('Release（ms）');
     expect(host.querySelector('[aria-label="バーの幅"]')?.closest('details')?.open).toBe(false);
-    act(() => host.querySelector('summary')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    act(() => host.querySelector('.advanced-settings > summary')!.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(host.querySelector<HTMLDetailsElement>('.advanced-settings')?.open).toBe(true);
     expect(host.querySelector('[aria-label="バーの幅"]')).not.toBeNull();
     act(() => host.querySelectorAll<HTMLButtonElement>('.effect-list button')[1]!.click());
@@ -199,15 +202,14 @@ describe('VisualEditor interactions', () => {
     act(() => root.unmount());
   });
 
-  it('shows the ordered editor workflow, all seven Timeline sources, and the native Preview aspect ratio', () => {
+  it('shows only audio selection and analysis status, all seven Timeline sources, and the native Preview aspect ratio', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext().context);
     const host = document.createElement('div'); document.body.append(host);
     const root = createRoot(host); act(() => root.render(<VisualEditor />));
     const steps = [...host.querySelectorAll<HTMLElement>('.workflow-step')];
-    expect(steps.map((step) => step.querySelector('strong')?.textContent)).toEqual(['1 · 音源選択', '2 · 範囲選択・解析', '3 · エフェクト編集', '4 · プレビュー', '5 · 書き出し']);
-    expect(steps[0]?.textContent).toContain('任意');
-    expect(steps[1]?.textContent).toContain('不要');
-    expect(steps[2]?.textContent).toContain('生成・編集できます');
+    expect(steps.map((step) => step.querySelector('strong')?.textContent)).toEqual(['音源選択', '音声解析']);
+    expect(steps.map((step) => step.querySelector('span')?.textContent)).toEqual(['未選択', '未解析']);
+    expect(steps.filter((step) => step.dataset.state === 'done')).toHaveLength(0);
     expect(host.querySelector('.workflow-blueprint')).toBeNull();
     expect(host.querySelectorAll('.timeline-source')).toHaveLength(7);
     const canvas = host.querySelector<HTMLCanvasElement>('[aria-label="映像プレビュー"]')!;
@@ -216,6 +218,23 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector('.editor-layout .side-panel')).not.toBeNull();
     expect(host.querySelector<HTMLButtonElement>('.effect-list button[aria-pressed="true"]')).not.toBeNull();
     expect(host.querySelector<HTMLDetailsElement>('.advanced-settings')?.open).toBe(false);
+    act(() => root.unmount());
+  });
+
+  it('keeps audio, range, and effect editors mounted and preserves edited values when accordions close', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext().context);
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host); act(() => root.render(<VisualEditor />));
+    const accordions = [...host.querySelectorAll<HTMLDetailsElement>('.editor-accordion')];
+    expect(accordions.map((details) => details.closest('section')?.getAttribute('aria-label') ?? (details.closest('section')?.classList.contains('editor-regions') ? 'editor-regions' : details.closest('section')?.className))).toEqual(['音源', 'editor-regions', 'effects-panel']);
+    expect(accordions.every((details) => details.open)).toBe(true);
+    const color = host.querySelector<HTMLInputElement>('[aria-label="エフェクトの色"]')!;
+    act(() => change(color, '#ff3366'));
+    act(() => { accordions[2]!.open = false; });
+    expect(host.querySelector('[aria-label="エフェクトの色"]')).not.toBeNull();
+    act(() => { accordions[2]!.open = true; });
+    expect(host.querySelector<HTMLInputElement>('[aria-label="エフェクトの色"]')?.value).toBe('#ff3366');
+    expect(host.querySelector('[aria-label="再生位置の調整"]')).not.toBeNull();
     act(() => root.unmount());
   });
 
@@ -602,6 +621,7 @@ describe('VisualEditor interactions', () => {
     vi.spyOn(HTMLMediaElement.prototype, 'duration', 'get').mockReturnValue(1);
     const host = document.createElement('div'); document.body.append(host);
     const root = createRoot(host); act(() => root.render(<VisualEditor variant="demo" />));
+    expect([...host.querySelectorAll('.effect-list button')].map((button) => button.textContent?.trim())).toEqual(['周波数バーステージ', 'インク拡散ステージ', '衝撃波ステージ']);
     const audio = host.querySelector<HTMLAudioElement>('audio[aria-label="デモ音源"]')!;
     expect(audio.getAttribute('src')).toBe('/demo/audio-reactive-silent-demo1.mp3');
     expect(host.querySelector('[aria-label="クラウド保存"]')).toBeNull();
@@ -658,8 +678,10 @@ describe('VisualEditor interactions', () => {
     await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); });
     const generate = [...host.querySelectorAll('button')].find((button) => button.textContent?.includes('エフェクトを生成'))!;
     expect(generate.disabled).toBe(true);
-    expect(host.querySelector('.workflow-step.state-current')?.textContent).toContain('範囲を選択');
-    expect([...host.querySelectorAll('.workflow-step')].find((step) => step.textContent?.includes('エフェクト編集'))?.textContent).toContain('解析後に利用できます');
+    const workflowSteps = [...host.querySelectorAll<HTMLElement>('.workflow-step')];
+    expect(workflowSteps.map((step) => step.querySelector('strong')?.textContent)).toEqual(['音源選択', '音声解析']);
+    expect(workflowSteps.map((step) => step.querySelector('span')?.textContent)).toEqual(['選択済み', '未解析']);
+    expect(workflowSteps.map((step) => step.dataset.state)).toEqual(['done', 'pending']);
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();
     expect([...host.querySelectorAll('button')].some((button) => button.textContent?.includes('範囲を確定して解析'))).toBe(true);
     expect(fetchMock.mock.calls.map((call) => String(call[0])).some((url) => url.includes('/api/v1/audio/analyze') || url.includes('/api/v1/blueprints/generate'))).toBe(false);
@@ -722,12 +744,14 @@ describe('VisualEditor interactions', () => {
     }
     vi.stubGlobal('OfflineAudioContext', FakeOfflineAudioContext);
     const analysisTimeline = { ...demoTimeline, schemaVersion: 1, timeUnit: 'ms', analysisVersion: 'python-island/test', sampleRateHz: 44_100, durationMs: 1000, bassEnvelope: [{ timeMs: 0, value: 0.2 }, { timeMs: 1000, value: 0.5 }], kickEvents: [] };
-    const summary = { summaryVersion: 1, durationMs: 1000, sourceAudio: { format: 'wav', codec: 'pcm_s16le', sampleRateHz: 44_100, channels: 2, fileBytes: 176_444 }, analysis: { model: 'htdemucs', device: 'cpu', stemRms: { drums: 0.1, bass: 0.2, vocals: 0.1, other: 0.1 }, estimatedKickCount: 0, featureSampleRateHz: 100, kickDetection: 'test' } };
+    const summary = { summaryVersion: 1, durationMs: 1000, sourceAudio: { format: 'wav', codec: 'pcm_s16le', sampleRateHz: 44_100, channels: 2, fileBytes: 176_444 }, analysis: { model: 'scnet_standard', device: 'cpu', stemRms: { drums: 0.1, bass: 0.2, vocals: 0.1, other: 0.1 }, estimatedKickCount: 0, featureSampleRateHz: 100, kickDetection: 'test' } };
+    let resolveAnalysis: ((response: Response) => void) | undefined;
+    const pendingAnalysis = new Promise<Response>((resolve) => { resolveAnalysis = resolve; });
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); calls.push({ url, init });
       if (url.endsWith('/api/v1/projects?limit=20')) return new Response(JSON.stringify({ items: [] }), { status: 200 });
-      if (url.endsWith('/api/v1/audio/analyze')) return new Response(JSON.stringify({ featureTimeline: analysisTimeline, musicSummary: summary, analysisMetadata: { metadataVersion: 1 } }), { status: 200 });
+      if (url.endsWith('/api/v1/audio/analyze')) return pendingAnalysis;
       if (url.endsWith('/api/v1/blueprints/generate')) return new Response(JSON.stringify({ mode: 'fixture', blueprint: structuredClone(initialEditorBlueprint) }), { status: 200 });
       throw new Error(`unexpected request ${url}`);
     }));
@@ -741,10 +765,19 @@ describe('VisualEditor interactions', () => {
     const gateMode = host.querySelector<HTMLSelectElement>('[aria-label="Kick Detection Gate Mode"]')!;
     expect(gateMode.value).toBe('middle');
     act(() => change(gateMode, 'soft'));
+    const statusRows = [...host.querySelectorAll<HTMLElement>('.workflow-step')];
+    expect(statusRows.map((row) => row.querySelector('span')?.textContent)).toEqual(['選択済み', '未解析']);
     const analyze = [...host.querySelectorAll('button')].find((button) => button.textContent?.includes('範囲を確定して解析'))!;
     await act(async () => { analyze.dispatchEvent(new MouseEvent('click', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 30)); });
+    expect(statusRows.map((row) => row.querySelector('span')?.textContent)).toEqual(['選択済み', '解析中']);
+    expect(statusRows.map((row) => row.dataset.state)).toEqual(['done', 'pending']);
+    await act(async () => {
+      resolveAnalysis?.(new Response(JSON.stringify({ featureTimeline: analysisTimeline, musicSummary: summary, analysisMetadata: { metadataVersion: 1 } }), { status: 200 }));
+      await new Promise((resolve) => window.setTimeout(resolve, 30));
+    });
     expect(host.textContent).toContain('解析済み範囲: 1.00 秒');
-    expect([...host.querySelectorAll('.workflow-step')].find((step) => step.textContent?.includes('範囲選択・解析'))?.textContent).toContain('完了');
+    expect(statusRows.map((row) => row.querySelector('span')?.textContent)).toEqual(['選択済み', '解析済み']);
+    expect(statusRows.map((row) => row.dataset.state)).toEqual(['done', 'done']);
     const analysisCall = calls.find((call) => call.url.endsWith('/api/v1/audio/analyze'))!;
     expect(analysisCall.init?.headers).toEqual({ Authorization: 'Bearer user-jwt' });
     expect((analysisCall.init?.body as FormData).get('audio')).toBeInstanceOf(File);
@@ -752,11 +785,11 @@ describe('VisualEditor interactions', () => {
     const generate = [...host.querySelectorAll('button')].find((button) => button.textContent?.includes('エフェクトを生成'))!;
     expect(generate.disabled).toBe(false);
     expect(calls.some((call) => call.url.endsWith('/api/v1/blueprints/generate'))).toBe(false);
-    expect([...host.querySelectorAll('.workflow-step')].find((step) => step.textContent?.includes('エフェクト編集'))?.textContent).toContain('生成・編集できます');
     await act(async () => { generate.dispatchEvent(new MouseEvent('click', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
     const generationCall = calls.find((call) => call.url.endsWith('/api/v1/blueprints/generate'))!;
-    const request = JSON.parse(String(generationCall.init?.body)) as { musicSummary: { durationMs: number }; featureTimeline: Record<string, unknown> };
+    const request = JSON.parse(String(generationCall.init?.body)) as { musicSummary: { durationMs: number; analysis: { model: string } }; featureTimeline: Record<string, unknown> };
     expect(request.musicSummary.durationMs).toBe(1000);
+    expect(request.musicSummary.analysis.model).toBe('scnet_standard');
     expect(request.featureTimeline.durationMs).toBe(1000);
     expect(request.featureTimeline.waveformPeaks).toBeUndefined();
     expect(request.featureTimeline.vocalsEnvelope).toBeUndefined();
@@ -776,6 +809,11 @@ describe('VisualEditor interactions', () => {
     const exportInput = vi.mocked(exportWebM).mock.calls.at(-1)?.[0];
     expect(exportInput?.timeline.durationMs).toBe(1000);
     expect(exportInput?.audioFile?.name).toBe('source-clip.wav');
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['replacement-audio'], 'replacement.wav', { type: 'audio/wav' })] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); });
+    expect(statusRows.map((row) => row.querySelector('span')?.textContent)).toEqual(['選択済み', '未解析']);
+    expect(statusRows.map((row) => row.dataset.state)).toEqual(['done', 'pending']);
     act(() => root.unmount());
   });
 

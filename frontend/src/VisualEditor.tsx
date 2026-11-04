@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { apiUrl } from './api-connection';
 import type { ChangeEvent, PointerEvent } from 'react';
 import { DEFAULT_GLOBAL_GRADIENT, demoTimeline, initialEditorBlueprint, newEditorBlueprint, validateBlueprint } from './editor-model';
 import type { Background, EditorBlueprint, Effect, EffectColorMode, FeatureTimeline, GlobalGradient, Region, RegionGeometry } from './editor-model';
@@ -12,7 +13,7 @@ import type { AuthSession } from './auth-client';
 import { createProject, deleteAsset, deleteProject, getProject, imageFileFromDataURL, listAssets, listProjects, loadAsset, updateProject, uploadAsset } from './cloud-api';
 import type { CloudEnvelopeProject, CloudProject } from './cloud-api';
 import { envelopeFromProjectDocumentV1, hydrateCloudEnvelopeV1, toCloudEnvelopeV1 } from './cloud-project';
-import { analyzeAudioClip, MAX_CLIP_SECONDS, trimAudioToWav, type KickGateMode } from './audio-analysis';
+import { analyzeAudioClip, cancelSavedAudioAnalysisJob, hasSavedAudioAnalysisJob, MAX_CLIP_SECONDS, restoreAudioAnalysisJob, trimAudioToWav, type AudioJobStatus, type KickGateMode } from './audio-analysis';
 import type { MusicSummary } from './audio-analysis';
 import { demoTracks, loadDemoTimeline } from './demo-assets';
 import { AudioRangeSelectionModal } from './AudioRangeSelectionModal';
@@ -205,7 +206,7 @@ function downloadBlob(blob: Blob, filename: string) {
 
 export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant = 'local' }: { timeline?: FeatureTimeline; variant?: 'local' | 'app' | 'demo' }) {
   const isDemo = variant === 'demo';
-  const startingBlueprint = isDemo ? initialEditorBlueprint : newEditorBlueprint;
+  const startingBlueprint = newEditorBlueprint;
   const [blueprint, setBlueprint] = useState<EditorBlueprint>(() => structuredClone(startingBlueprint));
   const [timeline, setTimeline] = useState<FeatureTimeline>(() => structuredClone(initialTimeline));
   const [selectedDemoId, setSelectedDemoId] = useState('demo1');
@@ -267,6 +268,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   const idSequence = useRef(100);
   const exportController = useRef<AbortController | null>(null);
   const audioAnalysisController = useRef<AbortController | null>(null);
+  const audioJobRestoreController = useRef<AbortController | null>(null);
   const audioDecodeSequence = useRef(0);
   const demoAudioRef = useRef<HTMLAudioElement>(null);
   const playbackAudioRef = useRef<HTMLAudioElement>(null);
@@ -314,14 +316,39 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }, [isDemo]);
 
   useEffect(() => {
+    if (variant !== 'app' || !authSession || !hasSavedAudioAnalysisJob()) return undefined;
+    const controller = new AbortController();
+    const sequence = audioDecodeSequence.current;
+    audioJobRestoreController.current?.abort();
+    audioJobRestoreController.current = controller;
+    setAudioAnalysisBusy(true);
+    setAudioAnalysisStatus('保存された解析ジョブを復元しています…');
+    void restoreAudioAnalysisJob(authSession.accessToken, controller.signal, (job: AudioJobStatus) => {
+      if (job.state === 'queued') setAudioAnalysisStatus(job.queuePosition ? `解析待ち：前に${Math.max(0, job.queuePosition - 1)}件あります。` : '解析待ちです。');
+      else if (job.state === 'running') setAudioAnalysisStatus('SCNetで音源を解析しています…');
+    }).then((result) => {
+      if (!result || controller.signal.aborted || sequence !== audioDecodeSequence.current) return;
+      setTimeline(result.featureTimeline);
+      setMusicSummary(result.musicSummary);
+      setAudioAnalysisStatus('前回の解析結果を復元しました。再生する場合は音源を選び直してください。');
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted && sequence === audioDecodeSequence.current) setAudioAnalysisStatus(error instanceof Error ? error.message : '解析ジョブを復元できませんでした。');
+    }).finally(() => {
+      if (audioJobRestoreController.current === controller) audioJobRestoreController.current = null;
+      if (!controller.signal.aborted && sequence === audioDecodeSequence.current) setAudioAnalysisBusy(false);
+    });
+    return () => controller.abort();
+  }, [authSession, variant]);
+
+  useEffect(() => {
     if (!isDemo) return undefined;
     let cancelled = false;
     setPlaying(false);
     if (demoAudioRef.current) { demoAudioRef.current.pause(); demoAudioRef.current.currentTime = 0; }
     setTimeMs(0);
-    setBlueprint(structuredClone(initialEditorBlueprint));
-    setSelectedRegionId(initialEditorBlueprint.regions[0]?.id ?? null);
-    setSelectedEffectId(initialEditorBlueprint.effects[0]?.id ?? null);
+    setBlueprint(structuredClone(newEditorBlueprint));
+    setSelectedRegionId(newEditorBlueprint.regions[0]?.id ?? null);
+    setSelectedEffectId(newEditorBlueprint.effects[0]?.id ?? null);
     setTimeline({ durationMs: 1, bassEnvelope: [{ timeMs: 0, value: 0 }], kickEvents: [] });
     setDemoTimelineReady(false);
     setDemoAudioDurationMs(null);
@@ -984,6 +1011,9 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     }
     audioAnalysisController.current?.abort();
     audioAnalysisController.current = null;
+    if (authSession && hasSavedAudioAnalysisJob()) cancelSavedAudioAnalysisJob(authSession.accessToken);
+    audioJobRestoreController.current?.abort();
+    audioJobRestoreController.current = null;
     setAudioAnalysisBusy(false);
     playbackAudioRef.current?.pause();
     setPlaying(false);
@@ -1055,7 +1085,10 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       const session = await currentSession();
       const clip = await trimAudioToWav(SourceAudioFile, rangeStart, rangeEnd);
       if (controller.signal.aborted) throw new DOMException('analysis canceled', 'AbortError');
-      const result = await analyzeAudioClip(clip.file, session.accessToken, controller.signal, kickGateMode);
+      const result = await analyzeAudioClip(clip.file, session.accessToken, controller.signal, kickGateMode, (job) => {
+        if (job.state === 'queued') setAudioAnalysisStatus(job.queuePosition ? `解析待ち：前に${Math.max(0, job.queuePosition - 1)}件あります。` : '解析待ちです。');
+        else if (job.state === 'running') setAudioAnalysisStatus('SCNetで音源を解析しています…');
+      });
       if (Math.abs(result.durationMs - clip.durationMs) > 1.1 || Math.abs(result.frameCount - clip.frameCount) > 45) throw new Error('解析結果の長さが切り出した音声と一致しません。');
       setPlaying(false);
       setTimeMs(0);
@@ -1212,7 +1245,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
         kickEvents: timeline.kickEvents,
         ...(timeline.kickEventStrengths ? { kickEventStrengths: timeline.kickEventStrengths } : {}),
       };
-      const response = await fetch('/api/v1/blueprints/generate', {
+      const response = await fetch(apiUrl('/api/v1/blueprints/generate'), {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}`, 'Idempotency-Key': idempotencyKey },
         body: JSON.stringify({ musicSummary: summary, featureTimeline: compactGenerationTimeline, visualIntent: 'Create a calm luminous stage with bass-reactive bars and kick accents.' }),
       });
@@ -1261,15 +1294,9 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       selectedRegion.geometry.points.forEach((point, pointIndex) => regionEditHandles.push({ key: `point-${pointIndex}`, label: `${regionDisplayName(selectedRegion.name)}の頂点 ${pointIndex + 1} を移動`, x: point.x, y: point.y, mode: 'move-polygon-point', pointIndex, className: 'region-vertex-handle' }));
     }
   }
-  const workflowAudioReady = variant === 'app' ? Boolean(SourceAudioFile || musicSummary) : Boolean(audioFile);
-  const workflowExportReady = !exporting && !rangeSelectionOpen && !audioAnalysisBusy && (!exportWithAudio || Boolean(audioFile));
-  const workflowStages = [
-    { label: '1 · 音源選択', state: workflowAudioReady ? 'done' : variant === 'app' ? 'current' : 'optional', detail: workflowAudioReady ? '読み込み済み' : variant === 'app' ? '音源を選択' : '任意' },
-    { label: '2 · 範囲選択・解析', state: variant !== 'app' ? 'optional' : musicSummary ? 'done' : audioAnalysisBusy ? 'current' : SourceAudioFile ? 'current' : 'waiting', detail: variant !== 'app' ? '不要' : musicSummary ? '完了' : audioAnalysisBusy ? '解析中' : SourceAudioFile ? '範囲を選択' : '音源選択後' },
-    { label: '3 · エフェクト編集', state: variant === 'app' && !musicSummary ? 'waiting' : 'ready', detail: variant === 'app' && !musicSummary ? '解析後に利用できます' : '生成・編集できます' },
-    { label: '4 · プレビュー', state: 'ready', detail: '利用できます' },
-    { label: '5 · 書き出し', state: workflowExportReady ? 'ready' : 'waiting', detail: exporting ? '書き出し中' : workflowExportReady ? '利用できます' : exportWithAudio && !audioFile ? '音源が必要です' : '解析完了後に利用できます' },
-  ];
+  const workflowAudioReady = Boolean(SourceAudioFile || audioFile || musicSummary);
+  const workflowAnalysisReady = !audioAnalysisBusy && !SourceAudioFile && Boolean(musicSummary);
+  const workflowAnalysisStatus = audioAnalysisBusy ? '解析中' : workflowAnalysisReady ? '解析済み' : '未解析';
 
   return (
     <main className="editor-shell">
@@ -1278,10 +1305,13 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
         <div className="badge">プレビュー</div>
       </header>
 
-      {!isDemo && <nav className="editor-workflow" aria-label="制作の手順">
-        {workflowStages.map((stage) => <div key={stage.label} className={`workflow-step state-${stage.state}`} data-state={stage.state}>
-          <strong>{stage.label}</strong><span>{stage.detail}</span>
-        </div>)}
+      {!isDemo && <nav className="editor-workflow" aria-label="音源・解析の状態">
+        <div className={`workflow-step${workflowAudioReady ? ' state-done' : ''}`} data-state={workflowAudioReady ? 'done' : 'pending'}>
+          <strong>音源選択</strong><span>{workflowAudioReady ? '選択済み' : '未選択'}</span>
+        </div>
+        <div className={`workflow-step${workflowAnalysisReady ? ' state-done' : ''}`} data-state={workflowAnalysisReady ? 'done' : 'pending'}>
+          <strong>音声解析</strong><span>{workflowAnalysisStatus}</span>
+        </div>
       </nav>}
 
       {isDemo && <audio hidden ref={demoAudioRef} src={selectedDemoTrack.audioUrl} preload="metadata" onLoadedMetadata={(event) => setDemoAudioDurationMs(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration * 1000 : null)} onError={() => setDemoStatus(`${selectedDemoTrack.title}の音源を読み込めません。`)} onEnded={() => { setPlaying(false); setTimeMs(timeline.durationMs); }} aria-label="デモ音源" />}
@@ -1322,7 +1352,9 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             {cloudStatus && <p role="status">{cloudStatus}</p>}
           </section>}
           {!isDemo && <section className="panel-section workflow-audio" aria-label="音源">
-            <h2>1 · 音源</h2>
+            <details className="editor-accordion" open>
+            <summary><h2>2 · 音源</h2><span className="accordion-hint">選択・解析</span></summary>
+            <div className="accordion-content">
             <p>{variant === 'app' ? '音源を選び、範囲を指定して解析します。' : '音声付き動画の書き出しや解析に使う音源を選びます。サンプル設定の読み込みと無音の書き出しは、音源なしで利用できます。'}</p>
             <label className="file-button">{variant === 'app' ? '音源を選択して範囲を解析' : '音源を選択'}<input aria-label="音源を選択" type="file" accept="audio/*" onChange={(event) => { void onAudioSelected(event); }} /></label>
             {SourceAudioFile && <p className="local-file-name">元の音源：{SourceAudioFile.name}</p>}
@@ -1337,6 +1369,8 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
               {variant === 'app' && !musicSummary && !apiLoading && <p className="workflow-prerequisite">先に音源の範囲を選んで解析してください。</p>}
               {apiStatus && <p role="status">{apiStatus}</p>}
             </div>
+            </div>
+            </details>
           </section>}
           {variant === 'app' && rangeSelectionOpen && SourceAudioFile && sourceWaveform && <AudioRangeSelectionModal
             audioUrl={SourceAudioUrl} waveform={sourceWaveform} duration={SourceDuration} start={rangeStart} end={rangeEnd}
@@ -1358,7 +1392,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
           </section>
 
           {!isDemo && <section className="panel-section workflow-export">
-            <h2>6 · 書き出しとプロジェクト</h2>
+            <h2>5 · 書き出しとプロジェクト</h2>
             <label className="field export-field">音声<select aria-label="音声" value={exportWithAudio ? 'with-audio' : 'silent'} disabled={exporting} onChange={(event) => setExportWithAudio(event.target.value === 'with-audio')}><option value="silent">無音の動画</option><option value="with-audio">選択した音源を含める</option></select></label>
             <label className="field export-field">動画形式<select aria-label="動画形式" value={exportFormat} disabled={exporting} onChange={(event) => setExportFormat(event.target.value as VideoFormat)}><option value="webm">WebM</option><option value="mp4" disabled={!isMP4Supported(exportWithAudio)}>MP4（H.264{exportWithAudio ? ' / AAC' : ''}）</option></select></label>
             {!isMP4Supported(exportWithAudio) && <p className="workflow-prerequisite">このブラウザーは現在の音声設定で{exportWithAudio ? 'H.264 / AAC' : 'H.264'}のMP4出力に対応していません。WebMは引き続き利用できます。</p>}
@@ -1383,7 +1417,9 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
           </section>}
 
           <section className="panel-section editor-regions">
-            <h2>範囲 <span>{blueprint.regions.length}</span></h2>
+            <details className="editor-accordion" open>
+            <summary><h2>3 · 範囲 <span>{blueprint.regions.length}</span></h2><span className="accordion-hint">選択・編集</span></summary>
+            <div className="accordion-content">
             <div className="tool-row">
               <button className={tool === 'select' ? 'active' : ''} onClick={() => { setTool('select'); setRectDraft(null); setPolygonDraft([]); }}>選択</button>
               <button className={tool === 'rect' ? 'active' : ''} onClick={() => { setRegionEditMode(false); setTool('rect'); setPolygonDraft([]); }}>四角形を描く</button>
@@ -1400,6 +1436,8 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
               </> : selectedPolygonPoints.map((point, index) => <div className="polygon-point" key={`${selectedRegion.id}-${index}`}><span>P{index + 1}</span><label>x<input aria-label={`頂点 ${index + 1} の x`} type="number" min={0} max={1} step={0.01} value={point.x} onChange={(event) => updateRegionGeometry({ kind: 'polygon', points: selectedPolygonPoints.map((item, i) => i === index ? { ...item, x: Number(event.target.value) } : item) })} /></label><label>y<input aria-label={`頂点 ${index + 1} の y`} type="number" min={0} max={1} step={0.01} value={point.y} onChange={(event) => updateRegionGeometry({ kind: 'polygon', points: selectedPolygonPoints.map((item, i) => i === index ? { ...item, y: Number(event.target.value) } : item) })} /></label></div>)}
               <button className="danger-button" onClick={deleteRegion}>範囲を削除</button>
             </div>}
+            </div>
+            </details>
           </section>
         </aside>
 
@@ -1437,7 +1475,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
           </div>
 
           <section className="timeline-panel" aria-label="再生とタイムライン">
-            <h2>5 · 再生とタイムライン</h2>
+            <h2>1 · 再生とタイムライン</h2>
             {isDemo && <label className="field">デモ楽曲<select aria-label="デモ楽曲" value={selectedDemoId} onChange={(event) => { setPlaying(false); setTimeMs(0); setDemoStatus('楽曲を切り替えています…'); setSelectedDemoId(event.target.value); }}>{demoTracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}</select></label>}
             <div className="playback-controls"><button className="primary-button" disabled={isDemo && demoStatus !== 'ready'} onClick={() => setPreviewPlaying(!playing)}>{playing ? '一時停止' : '再生'}</button><button disabled={isDemo && demoStatus !== 'ready'} onClick={stopPreview}>停止</button><output aria-label="再生位置" className="timeline-time">{(timeMs / 1000).toFixed(2)} s <span>/ {(timeline.durationMs / 1000).toFixed(2)} s</span></output></div>
             <input aria-label="再生位置の調整" className="seek" type="range" min={0} max={timeline.durationMs} step={20} disabled={isDemo && demoStatus !== 'ready'} value={timeMs} onChange={(event) => seekPreview(Number(event.target.value))} />
@@ -1445,7 +1483,10 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
           </section>
 
           <section className="effects-panel">
-            <div className="section-heading"><div><h2>4 · エフェクト</h2><p>選択中のエフェクトの見た目と音への反応を設定します。</p></div><div className="effect-add-controls"><label className="field">分類<select aria-label="追加するエフェクトの分類" value={addCategory} onChange={(event) => setAddCategory(event.target.value as EffectCategory)}>{EFFECT_CATEGORIES.map((category) => <option key={category} value={category}>{({ 'Core / Transform': '基本・変形', Waveform: '波形', 'EQ / Spectrum': '周波数', 'Circular / Radial': '円形・放射', Particles: '粒子', Impacts: '衝撃', 'Ambient / Atmospheric': '雰囲気' } as Record<string, string>)[category] ?? category}</option>)}</select></label><label className="field">＋ エフェクトを追加<select aria-label="追加するエフェクト" defaultValue="" onChange={(event) => { if (event.target.value) addEffect(event.target.value as Effect['kind']); event.target.value = ''; }}><option value="">種類を選択</option>{EFFECTS_BY_CATEGORY[addCategory].map((kind) => <option key={kind} value={kind}>{titleFor(kind)}</option>)}</select></label><button type="button" className="danger-button" disabled={!selectedEffect} onClick={deleteEffect}>エフェクトを削除</button></div></div>
+            <details className="editor-accordion" open>
+            <summary><div className="section-heading"><div><h2>4 · エフェクト</h2><p>種類を選び、プレビューで確認しながら見た目と音への反応を調整します。</p></div><span className="accordion-hint">追加・編集</span></div></summary>
+            <div className="accordion-content">
+            <div className="effect-add-controls"><label className="field">分類<select aria-label="追加するエフェクトの分類" value={addCategory} onChange={(event) => setAddCategory(event.target.value as EffectCategory)}>{EFFECT_CATEGORIES.map((category) => <option key={category} value={category}>{({ 'Core / Transform': '基本・変形', Waveform: '波形', 'EQ / Spectrum': '周波数', 'Circular / Radial': '円形・放射', Particles: '粒子', Impacts: '衝撃', 'Ambient / Atmospheric': '雰囲気' } as Record<string, string>)[category] ?? category}</option>)}</select></label><label className="field">＋ エフェクトを追加<select aria-label="追加するエフェクト" defaultValue="" onChange={(event) => { if (event.target.value) addEffect(event.target.value as Effect['kind']); event.target.value = ''; }}><option value="">種類を選択</option>{EFFECTS_BY_CATEGORY[addCategory].map((kind) => <option key={kind} value={kind}>{titleFor(kind)}</option>)}</select></label><button type="button" className="danger-button" disabled={!selectedEffect} onClick={deleteEffect}>エフェクトを削除</button></div>
             <div className="global-gradient-panel"><h3>共通カラー</h3><p>すべてのエフェクトに使う色の変化を設定します。</p>{(['startColor', 'middleColor', 'endColor'] as const).map((key) => <label className="field" key={key}>{key === 'startColor' ? '開始色' : key === 'middleColor' ? '中間色' : '終了色'}<input aria-label={`共通カラー ${key}`} type="color" value={(blueprint.globalGradient ?? DEFAULT_GLOBAL_GRADIENT)[key]} onChange={(event) => updateGlobalGradient(key, event.target.value)} /></label>)}<label className="field">色の向き<input aria-label="共通カラーの向き" type="number" min={0} max={360} value={(blueprint.globalGradient ?? DEFAULT_GLOBAL_GRADIENT).angleDeg} onChange={(event) => updateGlobalGradient('angleDeg', Number(event.target.value))} /></label></div>
             {variant === 'app' && <label className="field kick-gate-mode">Kick Detection Gate Mode<select aria-label="Kick Detection Gate Mode" value={kickGateMode} disabled={audioAnalysisBusy} onChange={(event) => setKickGateMode(event.target.value as KickGateMode)}><option value="off">Off</option><option value="soft">Soft</option><option value="middle">Middle</option><option value="hard">Hard</option></select><small>Kick検出の感度を設定します。変更は次回の音声解析時に反映されます。</small></label>}
             <div className="effect-editor">
@@ -1491,6 +1532,8 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
                 {selectedBinding && <div className="binding-fields"><h3>Audio Reactive</h3><label className="field">Audio Source<select aria-label="Audio Source" value={selectedBinding.source} onChange={(event) => updateBinding('source', event.target.value)}>{(['bass.envelope', 'drums.energy', 'vocals.envelope', 'other.envelope', 'music.energy', 'kick.events', 'snare.events'] as const).map((Source) => <option key={Source} value={Source}>{sourceLabels[Source]}{sourceIsAvailable(Source, timeline, selectedEffect) ? '' : '（利用不可）'}</option>)}</select></label>{!sourceIsAvailable(selectedBinding.source, timeline, selectedEffect) && <p role="status">{selectedEffect.kind === 'spectrum-bars' || selectedEffect.kind === 'spectrum-line' ? '周波数データがないため、このエフェクトは停止中です。' : selectedEffect.kind.startsWith('waveform-') ? selectedEffect.visibilityMode === 'always' ? '実際の波形データがないため、基準線・輪郭のみ表示します。代用の波形は生成しません。' : '実際の波形データがないため、このエフェクトは停止中です。' : selectedEffect.audioReactive === false ? '音への反応がオフのため、選んだ音源には反応しません。' : selectedEffect.visibilityMode === 'always' ? `${sourceLabels[selectedBinding.source]}のデータがないため、基本形状のみ表示します。` : `${sourceLabels[selectedBinding.source]}のデータがないため、このエフェクトは停止中です。`}</p>}{bindingNumber('Strength', 'strength', selectedBinding.strength, 0, 1)}{bindingNumber('Threshold', 'threshold', selectedBinding.threshold, 0, 1)}{bindingNumber('Attack ms', 'attackMs', selectedBinding.attackMs, 0, 5000, 10)}{bindingNumber('Release ms', 'releaseMs', selectedBinding.releaseMs, 0, 10000, 10)}</div>}
               </div> : <div className="empty-selection">エフェクトを選ぶか追加すると、設定を編集できます。</div>}
             </div>
+            </div>
+            </details>
           </section>
         </section>
       </div>
