@@ -18,9 +18,17 @@ WITH checks AS (
                  AND NOT r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolcreatedb
                  AND NOT r.rolcreaterole AND NOT r.rolbypassrls)
          AND NOT EXISTS (SELECT 1 FROM pg_auth_members m
-                         WHERE m.roleid=(SELECT oid FROM pg_roles WHERE rolname='arvc_project_writer')
-                            OR m.member=(SELECT oid FROM pg_roles WHERE rolname='arvc_project_writer')),
-         'NOLOGIN/NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOBYPASSRLS and no memberships'
+                         WHERE (m.roleid=(SELECT oid FROM pg_roles WHERE rolname='arvc_project_writer')
+                            OR m.member=(SELECT oid FROM pg_roles WHERE rolname='arvc_project_writer'))
+                           AND NOT (
+                             m.roleid=(SELECT oid FROM pg_roles WHERE rolname='arvc_project_writer')
+                             AND m.member=(SELECT oid FROM pg_roles WHERE rolname='postgres')
+                             AND m.grantor=(SELECT oid FROM pg_roles WHERE rolname='supabase_admin')
+                             AND m.admin_option
+                             AND NOT m.inherit_option
+                             AND NOT m.set_option
+                           )),
+         'restricted role; only the protected non-inheriting, non-settable Supabase bootstrap membership may remain'
   UNION ALL
   SELECT 'helper_schema_grants_removed',
          NOT has_schema_privilege('arvc_project_writer','public','CREATE')
