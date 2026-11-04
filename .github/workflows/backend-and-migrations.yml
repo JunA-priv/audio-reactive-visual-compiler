@@ -77,6 +77,17 @@ jobs:
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-audio-analysis-jobs.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50d-audio-job-idempotency.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50e-audio-job-dispatch.sql
+          for invariant in \
+            supabase/verification/step7b-privilege-invariants.sql \
+            supabase/verification/step7g-ai-budget-privilege-invariants.sql \
+            supabase/verification/step7k42-audio-analysis-privilege-invariants.sql; do
+            output="$(docker exec -i supabase_db_audio-reactive-visual-compiler psql -XAt -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < "$invariant")"
+            printf '%s\n' "$output"
+            if grep -Eq '\|f(\||$)' <<<"$output"; then
+              echo "Privilege invariant failed: $invariant" >&2
+              exit 1
+            fi
+          done
           supabase db lint --local --fail-on error
           restore_migration
       - name: Stop disposable Supabase stack

@@ -1,3 +1,3 @@
--- PostgreSQL may record the role creator as a member of a newly created role.
--- The runtime verifier must have no role memberships or inheritance path.
+-- Remove the postgres-granted link. Supabase's protected bootstrap membership
+-- remains non-inheriting and non-settable and is not a runtime access path.
 REVOKE arvc_asset_verifier FROM postgres;

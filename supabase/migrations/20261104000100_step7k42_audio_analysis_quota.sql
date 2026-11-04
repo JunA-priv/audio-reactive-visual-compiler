@@ -8,6 +8,8 @@ BEGIN
   CREATE ROLE arvc_audio_analysis NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 END
 $role$;
+-- Remove the postgres-granted link; retain only Supabase's protected,
+-- non-inheriting and non-settable bootstrap membership when present.
 REVOKE arvc_audio_analysis FROM postgres;
 
 CREATE TABLE public.audio_analysis_entitlements (
