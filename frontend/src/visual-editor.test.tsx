@@ -116,7 +116,7 @@ describe('VisualEditor interactions', () => {
     }))).toEqual([
       { kind: 'spectrum-bars', regionId: 'region-stage', color: '#91e8ff', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'always', audioReactive: true },
       { kind: 'ink-diffusion', regionId: 'region-stage', color: '#8b5cf6', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'always', audioReactive: true },
-      { kind: 'shockwave', regionId: 'region-stage', color: '#8b5cf6', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'triggered', audioReactive: true },
+      { kind: 'shockwave', regionId: 'region-stage', color: '#ff48d6', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'triggered', audioReactive: true },
     ]);
     expect(newEditorBlueprint.bindings).toEqual([
       { id: 'binding-effect-spectrum-bars-default', effectId: 'effect-spectrum-bars-default', source: 'music.energy', strength: 0.9, threshold: 0.1, attackMs: 60, releaseMs: 260 },

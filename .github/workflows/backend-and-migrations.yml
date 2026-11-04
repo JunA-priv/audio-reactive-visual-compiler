@@ -48,7 +48,7 @@ jobs:
         run: scripts/tests/check-forward-migrations.sh "$BASE_SHA"
       - uses: supabase/setup-cli@v3
         with:
-          version: 2.84.2
+          version: 2.121.0
       - name: Apply new migration over sentinel user and quota data
         shell: bash
         run: |
