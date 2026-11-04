@@ -55,12 +55,15 @@ jobs:
           set -euo pipefail
           migration_queue=supabase/migrations/20261105000100_step7k50b_audio_analysis_jobs.sql
           migration_quota=supabase/migrations/20261105000200_step7k50d_audio_job_quota_idempotency.sql
+          migration_dispatch=supabase/migrations/20261105000300_step7k50e_audio_job_dispatch_outbox.sql
           temp_dir="$(mktemp -d)"
           mv "$migration_queue" "$temp_dir/queue.sql"
           mv "$migration_quota" "$temp_dir/job-quota.sql"
+          mv "$migration_dispatch" "$temp_dir/job-dispatch.sql"
           restore_migration() {
             if [[ -f "$temp_dir/queue.sql" ]]; then mv "$temp_dir/queue.sql" "$migration_queue"; fi
             if [[ -f "$temp_dir/job-quota.sql" ]]; then mv "$temp_dir/job-quota.sql" "$migration_quota"; fi
+            if [[ -f "$temp_dir/job-dispatch.sql" ]]; then mv "$temp_dir/job-dispatch.sql" "$migration_dispatch"; fi
             rm -rf "$temp_dir"
           }
           trap restore_migration EXIT
@@ -68,10 +71,12 @@ jobs:
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-preservation-before.sql
           mv "$temp_dir/queue.sql" "$migration_queue"
           mv "$temp_dir/job-quota.sql" "$migration_quota"
+          mv "$temp_dir/job-dispatch.sql" "$migration_dispatch"
           supabase migration up --local
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-preservation-after.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-audio-analysis-jobs.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50d-audio-job-idempotency.sql
+          docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50e-audio-job-dispatch.sql
           supabase db lint --local --fail-on error
           restore_migration
       - name: Stop disposable Supabase stack

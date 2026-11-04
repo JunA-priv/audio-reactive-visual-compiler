@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl } from './api-connection';
 import type { ChangeEvent, PointerEvent } from 'react';
-import { DEFAULT_GLOBAL_GRADIENT, demoTimeline, initialEditorBlueprint, newEditorBlueprint, validateBlueprint } from './editor-model';
+import { DEFAULT_GLOBAL_GRADIENT, demoTimeline, newEditorBlueprint, validateBlueprint } from './editor-model';
 import type { Background, EditorBlueprint, Effect, EffectColorMode, FeatureTimeline, GlobalGradient, Region, RegionGeometry } from './editor-model';
 import { renderEditorFrame } from './renderer';
 import type { RenderAssets } from './renderer';
