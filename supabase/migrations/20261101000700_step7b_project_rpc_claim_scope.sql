@@ -1,9 +1,8 @@
 -- The local migration role cannot grant USAGE on Supabase-owned auth schema.
 -- Keep the update RPC SECURITY DEFINER, but derive its owner from PostgREST's
 -- verified JWT claim settings and apply the same predicate in its RLS policy.
-DROP POLICY projects_update_owner ON public.projects;
-CREATE POLICY projects_update_owner ON public.projects
-  FOR UPDATE TO arvc_project_writer
+ALTER POLICY projects_update_owner ON public.projects
+  TO arvc_project_writer
   USING (
     owner_id = COALESCE(
       NULLIF(pg_catalog.current_setting('request.jwt.claim.sub', true), ''),
