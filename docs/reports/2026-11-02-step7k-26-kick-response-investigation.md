@@ -1,60 +1,60 @@
-# Step 7k-26 — Kick Detection / Binding Response Investigation
+# Step 7k-26 — Kick検出とBinding応答の調査
 
-**Status: partial.** Root cause was isolated across the data and rendering path, and the defaults for newly created Kick bindings were adjusted. Automated checks passed. Acoustic truth labels and browser-visible response remain unverified.
+**状態: 部分完了。** データから描画までの経路を調べて根本原因を特定し、新規Kick Bindingの既定値を調整しました。自動確認は成功しました。アコースティック音源の正解ラベルとブラウザーで見える応答は未検証です。
 
-## Findings
+## 調査結果
 
-### Gate Mode and Timeline flow
+### Gate ModeとTimelineの流れ
 
-The existing Gate Mode path remains connected: the Editor sends the selected `kickGateMode` on the next Analyze request; Go validates and forwards it to Python; `extract_features()` passes it into `detect_kicks()`. Omission remains Hard. The selected mode does not reprocess an existing Timeline. On successful analysis, `VisualEditor.tsx` replaces Timeline with the returned `featureTimeline` and initializes the normal new-analysis Blueprint. That Blueprint intentionally binds its Spectrum Bars and Ink Diffusion to `music.energy`, so a Kick event will not drive those default Effects until their Audio Source is changed to Kick. A failed analysis does not replace the existing successful Timeline/Blueprint.
+既存のGate Mode経路は引き続き接続されています。Editorは次のAnalyzeリクエストで選択した`kickGateMode`を送信し、Goが検証してPythonへ渡し、`extract_features()`が`detect_kicks()`に伝えます。省略時は引き続きHardです。モード選択によって既存Timelineが再処理されることはありません。解析成功時、`VisualEditor.tsx`は返却された`featureTimeline`でTimelineを置き換え、通常の新規解析用Blueprintを初期化します。このBlueprintではSpectrum BarsとInk Diffusionの入力を意図的に`music.energy`にしているため、Audio SourceをKickに変更するまではKickイベントで既定Effectが駆動されません。解析失敗時は、既存の成功済みTimeline/Blueprintを置き換えません。
 
-### Detector output and strength
+### 検出器の出力とstrength
 
-Re-ran the unchanged detector on `demo-assets/stems/demo4-kick-evaluation/drums.wav` (189.960s, 44.1kHz stereo PCM16). These are detector diagnostics, not labeled accuracy:
+変更していない検出器を`demo-assets/stems/demo4-kick-evaluation/drums.wav`（189.960秒、44.1kHz、ステレオPCM16）で再実行しました。以下は検出器の診断値であり、ラベルに基づく精度ではありません。
 
-| Gate | Events | Strength ≤ 0.1 | Strength > 0.1 | Min | Median | p90 | Max | Min / median event gap |
+| ゲート | イベント数 | Strength ≤ 0.1 | Strength > 0.1 | 最小 | 中央値 | p90 | 最大 | イベント間隔の最小/中央値 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | Off | 994 | 429 | 565 | 0.000094 | 0.223223 | 0.689112 | 1.000000 | 120 / 160ms |
 | Soft | 647 | 102 | 545 | 0.018141 | 0.369472 | 0.748848 | 1.000000 | 120 / 240ms |
 | Middle | 395 | 91 | 304 | 0.028778 | 0.351253 | 0.801916 | 1.000000 | 120 / 300ms |
 | Hard | 138 | 69 | 69 | 0.043280 | 0.099156 | 0.389254 | 1.000000 | 140 / 580ms |
 
-The unchanged detector retains its 120ms candidate merge; event intervals therefore cannot be shorter than 120ms except where the stricter gate changes which local maximum survives. Off's extra events are not assumed to be true Kicks. Strength remains a per-analysis normalization over accepted candidate scores, so it is relative to the selected mode and clip, not an acoustic confidence score. Existing Step 7k-25 evidence shows Hard event times match the saved Hard baseline exactly.
+検出器は従来どおり候補を120msで統合するため、厳しいゲートによって残る局所最大値が変わる場合を除き、イベント間隔は120ms未満になりません。Offで増えたイベントが実際のKickだとは仮定しません。Strengthは採用候補スコアを解析ごとに正規化した値であり、選択したモードとクリップに対する相対値です。音響上の信頼度スコアではありません。Step 7k-25の既存証拠では、Hardのイベント時刻は保存済みHardベースラインと完全一致しています。
 
-### Binding and Effect path
+### BindingとEffectの経路
 
-`renderer.ts` reads paired `kickEvents` / `kickEventStrengths` (`rawSourceValue()`), applies the Binding threshold and Attack/Release in `evaluateBinding()`, then multiplies by Binding strength. Ripple uses this continuous smoothed value for opacity and size modulation. Its ring phase is based on elapsed time and `periodMs`, not locked to each Kick onset. Event-driven Shockwave / Particle Burst instead run `boundFeature()` on each event Strength; a Strength at or below threshold yields zero opacity. These paths are separate from detector acceptance.
+`renderer.ts`は対応する`kickEvents` / `kickEventStrengths`を読み取り（`rawSourceValue()`）、`evaluateBinding()`でBindingの閾値とAttack/Releaseを適用した後、Binding strengthを掛けます。Rippleはこの連続的に平滑化された値で不透明度とサイズを変化させます。リング位相は経過時間と`periodMs`に基づき、個々のKickオンセットには同期しません。一方、イベント駆動のShockwave / Particle BurstはイベントごとのStrengthに`boundFeature()`を適用します。Strengthが閾値以下なら不透明度はゼロになります。これらの経路は検出器によるイベント採用とは別です。
 
-Reproduced the cutoff: at threshold 0.1, Strength 0.05 and 0.1 produce zero. Strength 0.2 produces a pre-attack normalized value `(0.2 - 0.1) / (1 - 0.1) = 0.1111`; with Binding strength 0.9 and 60ms Attack, the 20ms sampled value is about 0.02835. At Strength 0.2, threshold 0.05 and 0 produce pre-attack outputs 0.1579 and 0.2 respectively. With zero threshold and Binding strength 1, 60ms/20ms/0ms Attack samples are about 0.0567/0.1264/0.2; with strength 0.9 they are 0.0510/0.1138/0.18. Strength 1.0 scales the normalized outputs up to their ceiling. The same 0.1 cutoff fully suppresses the demo4 events at or below that value: 429 Off, 102 Soft, 91 Middle, and 69 Hard. The renderer tests also show a 0.05 event reaches Ripple and Shockwave draw commands with threshold 0, and is suppressed at threshold 0.1.
+閾値による遮断を再現しました。閾値0.1ではStrength 0.05と0.1の出力はゼロです。Strength 0.2の場合、Attack適用前の正規化値は`(0.2 - 0.1) / (1 - 0.1) = 0.1111`です。Binding strength 0.9、Attack 60msでは、20ms時点の値は約0.02835です。Strength 0.2で閾値を0.05または0にすると、Attack前の出力はそれぞれ0.1579、0.2です。閾値0、Binding strength 1ではAttack 60ms/20ms/0msのサンプル値は約0.0567/0.1264/0.2で、strength 0.9では0.0510/0.1138/0.18です。Strength 1.0では正規化出力が上限まで増えます。同じ0.1の閾値により、demo4のうちその値以下のイベントは完全に抑制されます（Off 429件、Soft 102件、Middle 91件、Hard 69件）。Rendererテストでも、閾値0ではStrength 0.05のイベントがRippleとShockwaveの描画コマンドに届き、閾値0.1では抑制されることを確認しました。
 
-Audio Reactive must be enabled, the Effect must use `kick.events`, and its Visibility/Opacity and Effect-specific controls must permit visible output. In particular, the post-analysis defaults are Song-bound, and Ripple is continuous-phase, so neither a non-Kick Audio Source nor a phase/low-opacity moment proves detector failure. Exact user-reported silent timestamps and their active Blueprint settings were not available; this prevents assigning a single exclusive cause for that report.
+Audio Reactiveが有効で、Effectの入力が`kick.events`であり、Visibility/OpacityとEffect固有の設定が描画を許可している必要があります。特に解析後の既定値はSong入力で、Rippleは位相が連続的に進みます。そのため、Kick以外のAudio Sourceや位相・低不透明度の瞬間だけでは、検出器の失敗とは判断できません。ユーザーが無音と報告した正確な時刻と、その時点で有効だったBlueprint設定が得られていないため、報告事象の原因を単一のものに断定できません。
 
-## Change
+## 変更内容
 
-For **newly created bindings whose source is `kick.events`**, `bindingFor()` now uses Strength 1, Threshold 0 and Attack 0ms, retaining Release 260ms. This avoids applying a second conservative cutoff/slew to detector outputs; Gate Mode remains the user's detector-side sensitivity control. Other Audio Source defaults are unchanged. Existing Bindings, loaded Projects, manually edited Ripple settings, the demo fixture's pre-existing Binding, and saved values are not rewritten. A Ripple changed from another source to Kick retains its current user-selected parameters; set Threshold to 0, Strength to 1 and, for prompt onset, Attack to 0ms if a saved Ripple should expose weak detected events.
+**入力が`kick.events`の新規Bindingに限り**、`bindingFor()`の既定値をStrength 1、Threshold 0、Attack 0msとし、Release 260msは維持します。これにより、検出器の出力に保守的な閾値やスルー制御を重ねて適用しません。検出器側の感度調整は引き続きGate Modeで行います。他のAudio Sourceの既定値は変更しません。既存Binding、読み込み済みProject、手動編集されたRipple設定、デモフィクスチャの既存Binding、保存済み値は書き換えません。別の入力からKickに変更したRippleも、現在のユーザー設定を維持します。保存済みRippleで弱い検出イベントを表示するには、Thresholdを0、Strengthを1にし、素早く反応させる場合はAttackを0msにしてください。
 
-No detector condition, normalization, merge, Timeline, API, Blueprint schema, saved Project, Effect rendering formula, or Renderer/WebM code changed. No detector accuracy improvement is claimed without human labels.
+検出条件、正規化、統合、Timeline、API、Blueprintスキーマ、保存済みProject、Effect描画式、Renderer/WebMコードは変更していません。人手ラベルがないため、検出精度の改善は主張しません。
 
-## Tests and checks
+## テストと確認
 
-- Frontend: **163 tests passed**; `npm run typecheck`, `npm run lint`, `npm run build`: passed.
-- Python Island: **65 tests passed**; `mypy --strict src`: passed; Ruff `src tests --ignore E501`: passed.
-- Go Audio Analyze: `go test ./internal/audioanalysis` and `go vet ./...`: passed.
-- `git diff --check` and trailing-whitespace scan of all seven changed files: passed.
-- Added renderer tests sweep Strength 0.05/0.1/0.2/0.5/1, Threshold 0.1/0.05/0, Strength 0.9/1, Attack 60/20/0, post-onset decay, and Ripple/Shockwave propagation.
-- Added UI regression asserting a newly added Shockwave is Kick-bound with Threshold 0, Strength 1, Attack 0, Release 260.
-- Real browser / Windows Chrome and pixel-visible acoustic response: not tested in this environment.
+- Frontend: **163件成功**。`npm run typecheck`、`npm run lint`、`npm run build`: 成功。
+- Python Island: **65件成功**。`mypy --strict src`: 成功。Ruff `src tests --ignore E501`: 成功。
+- Go Audio Analyze: `go test ./internal/audioanalysis`および`go vet ./...`: 成功。
+- `git diff --check`と変更した7ファイルの行末空白チェック: 成功。
+- Rendererテストを追加し、Strength 0.05/0.1/0.2/0.5/1、Threshold 0.1/0.05/0、Binding strength 0.9/1、Attack 60/20/0、オンセット後の減衰、Ripple/Shockwaveへの伝達を網羅しました。
+- 新規ShockwaveのKick BindingがThreshold 0、Strength 1、Attack 0、Release 260となることを確認するUI回帰テストを追加しました。
+- 実ブラウザー/Windows Chromeでの画面確認、および画素上で見える音響応答: この環境では未検証です。
 
-## Changed files
+## 変更内容d files
 
-- `frontend/src/VisualEditor.tsx` — Kick-specific defaults for newly created Kick bindings.
-- `frontend/src/editor-renderer.test.ts` — Binding parameter sweep and weak-event Effect propagation coverage.
-- `frontend/src/visual-editor.test.tsx` — new Kick-bound Effect default regression.
-- `docs/reports/2026-11-02-step7k-26-kick-response-investigation.md` — findings and evidence.
-- `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `CURRENT_TASK.md` — status and outstanding evidence.
+- `frontend/src/VisualEditor.tsx` — 新規Kick Bindingに対するKick固有の既定値。
+- `frontend/src/editor-renderer.test.ts` — Bindingパラメーターの網羅確認と、弱いイベントのEffect伝達テスト。
+- `frontend/src/visual-editor.test.tsx` — Kick入力Effectの既定値に関する回帰テスト。
+- `docs/reports/2026-11-02-step7k-26-kick-response-investigation.md` — 調査結果と証拠。
+- `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `CURRENT_TASK.md` — 状態と未取得の証拠。
 
-## Remaining verification
+## 残る検証
 
-- Human-annotated Kick and non-Kick events are still required to assess whether Off's additional events are real Kicks or false positives.
-- Test with the user's actual saved Blueprint and silent timestamps; check Audio Source, Binding threshold/strength/attack, Audio Reactive, Visibility, Effect Opacity, and renderer command opacity at those exact times.
-- Manually inspect Ripple and an event-driven Effect in a real browser. Browser/GPU acceptance was not performed here.
+- Offで増えるイベントが実際のKickか誤検出か判断するには、人が注釈したKick/非Kickイベントが必要です。
+- ユーザーの実際の保存済みBlueprintと無音とされた時刻でテストし、Audio Source、Bindingのthreshold/strength/attack、Audio Reactive、Visibility、Effect Opacity、および該当時刻のrenderer command opacityを確認してください。
+- 実ブラウザーでRippleとイベント駆動Effectを目視確認してください。この環境ではブラウザー/GPUでの受け入れ確認は行っていません。

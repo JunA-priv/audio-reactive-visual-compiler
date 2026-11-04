@@ -1,0 +1,5 @@
+STEM_NAMES = ("drums", "bass", "vocals", "other")
+
+ENGINE_SCNET_STANDARD = "scnet_standard"
+ENGINE_DEMUCS_HTDEMUCS = "htdemucs"
+SEPARATION_ENGINES = (ENGINE_SCNET_STANDARD, ENGINE_DEMUCS_HTDEMUCS)

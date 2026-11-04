@@ -1,54 +1,54 @@
-# Step 7k-11e — Ink Diffusion visual quality and rendering review
+# Step 7k-11e — Ink Diffusionの視覚品質と描画方式の検討
 
-**status: partial** — Canvas2D was materially improved and automated checks pass. Actual browser pixels, WebM playback and raster FPS could not be inspected because no browser/Playwright executable is installed in the available environment.
+**状態：一部完了** — Canvas2Dを大幅に改善し、自動検査は成功しました。利用可能な環境にbrowser/Playwright executableがなく、実際のbrowser pixel、WebM再生、raster FPSを確認できませんでした。
 
-## Canvas2D changes
+## Canvas2Dの変更
 
-The previous four separate centers with three concentric contours were replaced by three intertwined, rising plume ribbons and six tapered branch ribbons. The three plumes share a time-varying flow field with three local vortex centers. Their contours widen at several heights, fold asymmetrically, and overlap; the branches leave at different heights and curve around the same flow field. Harmonic spatial turbulence and slow time phase keep movement continuous and seek-stable.
+従来の独立した4中心・同心輪郭3本を、絡み合いながら上昇するplume ribbon 3本と、先細りのbranch ribbon 6本に置き換えました。3本のplumeは3つの局所vortex centerを持つ時間変化flow fieldを共有します。輪郭は複数の高さで広がり、非対称に折れ重なります。branchは異なる高さから分岐し、同じflow fieldに沿って曲がります。空間harmonic turbulenceと緩やかなtime phaseにより、動きを連続させ、seek後も安定させます。
 
-Each plume has a soft outer wash and denser inner fill. The six branch ribbons add thinner, stretched flow. All use the existing Global Gradient in canvas coordinates or the existing Custom Color and normal Canvas `source-over` alpha. Effect Opacity is still multiplied by the common command path. Region clipping, draw order, and `renderEditorFrame` remain unchanged, so Preview and WebM call the same evaluation/render function.
+各plumeは柔らかい外側washと密度の高い内側fillを持ちます。6本のbranch ribbonは細長いflowを追加します。色はCanvas座標上で既存のGlobal Gradient、または既存のCustom Colorを使い、通常のCanvas `source-over` alpha合成を行います。Effect Opacityは共通command経路で引き続き乗算します。Region clip、描画順、`renderEditorFrame`は変更していないため、PreviewとWebMは同じ評価/描画関数を呼び出します。
 
-## Work and performance bounds
+## 実装量と性能上限
 
-- **12 path commands / Ink Effect:** 6 plume fills + 6 branch ribbons.
-- **600 supplied contour vertices / Effect:** 384 vertices for the three double-layer plumes + 216 for six ribbons.
-- **Four simultaneous Always Effects:** 48 commands and at most 2,400 supplied vertices per frame.
-- A local Vitest command-generation probe evaluated 240 frames with four Ink Effects in **120.01 ms total (0.50 ms/frame)**, including initial response-cache construction. This measures JavaScript command evaluation only; it excludes browser Canvas rasterization, compositing and display FPS.
-- The deterministic response table remains bounded at 12,001 values per cache entry, with 16 parameter variants per Timeline.
+- **Ink Effectごとにpath command 12個：** plume fill 6個 + branch ribbon 6本。
+- **Effectごとに輪郭vertexを600個提供：** 2層plume 3本で384個、ribbon 6本で216個。
+- **Always Effectを4つ同時実行：** 1 frameあたり48 command、輪郭vertexは最大2,400個。
+- ローカルVitest command生成probeは、Ink Effect 4つで240 frameを**合計120.01ms（0.50ms/frame）**で評価しました。初回response cache構築を含みます。これはJavaScript command評価だけの計測で、browser Canvas raster化、合成、表示FPSは含みません。
+- 決定的response tableは、cache entryあたり最大12,001値、Timelineあたり16 parameter variantの上限を維持します。
 
-No PNG was produced: there is no browser, Playwright/Puppeteer, SVG rasterizer, or installed Canvas package in the environment. The repository reference images were inspected, but generated command geometry is not represented as a browser screenshot. Therefore reference similarity, perceived color mixing, demo1/demo3 appearance, and WebM image parity remain visually unverified.
+環境にbrowser、Playwright/Puppeteer、SVG rasterizer、Canvas packageがないためPNGは生成していません。repository内のreference imageは確認しましたが、生成commandのgeometryはbrowser screenshotとして表現されていません。そのためreferenceとの類似性、見た目上の色混合、demo1/demo3での表示、WebM画像との一致は視覚的に未確認です。
 
-## Automated checks
+## 自動検査
 
-Tests now verify three broad plume paths, six tapered branch ribbons, their contour bounds and spatial union, nonzero opacity/Gradient, audio response scaling, under-1px contour displacement over 1ms, repeated/out-of-order seek determinism, Region clip application, and the existing Ink visibility/parameter behavior. The canvas test double validates submitted paths and clip calls; it does not rasterize them.
+testはplumeの広いpath 3本、先細りbranch ribbon 6本、輪郭範囲と空間的な結合、0以外のopacity/Gradient、音声response scaling、1msで1px未満の輪郭移動、繰り返し/順序を変えたseekの決定性、Region clip適用、既存Ink visibility/parameter挙動を検証します。Canvas test doubleは渡されたpathとclip callを検証しますが、raster化はしません。
 
-- `npm test -- --run` — passed, 126 tests.
-- `npm run typecheck` — passed.
-- `npm run lint` — passed.
-- `npm run build` — passed.
-- Go Blueprint/Project tests and targeted OpenAI schema/normalization tests — passed; no Blueprint/API contract changed.
-- `go vet ./...` — passed.
-- `git diff --check` — passed.
+- `npm test -- --run` — 126 test成功。
+- `npm run typecheck` — 成功。
+- `npm run lint` — 成功。
+- `npm run build` — 成功。
+- Go Blueprint/Project testとOpenAI schema/normalization対象test — 成功。Blueprint/API contractに変更なし。
+- `go vet ./...` — 成功。
+- `git diff --check` — 成功。
 
-## Rendering technology assessment
+## 描画技術の評価
 
 | Option | Fit for this Ink-only effect | Tradeoffs |
 |---|---|---|
-| Continue Canvas2D | Current choice. Curved ribbons, procedural field, gradient fills, clipping and timestamp evaluation are all available in the existing path. No dependency or output pipeline change. | It approximates ink with geometry; there is no pixel-density field/advection, so volumetric diffusion and fine turbulent mixing are inherently limited without raster work. |
-| Local WebGL2 shader | Strongest next candidate if browser review still rejects the result. A fragment shader can evaluate advected noise/density and color mixing per pixel. A transparent offscreen WebGL canvas could be composited with `drawImage` into the existing 2D surface, retaining the outer `renderEditorFrame` and capture path. | Requires Ink-only GPU resource lifecycle, shader compilation/fallback, alpha/color-space checks, context-loss handling and actual export validation. This has not been implemented or approved. |
-| PixiJS | Provides WebGL/WebGL2 and WebGPU renderers plus displacement/noise filters and blend modes. | Adds a new dependency and a renderer lifecycle for one Effect. Its current docs label WebGPU as maturing/experimental and recommend WebGL for production, so it offers little advantage over a small local WebGL2 pass here. |
-| WebGPU | Potential future GPU path. | Not needed for 2D ink; browser API availability and secure-context constraints add compatibility work. Future 3D interest alone does not justify it. |
+| Canvas2Dを継続 | 現在の選択。曲線ribbon、procedural field、gradient fill、clip、timestamp評価を既存経路で利用でき、dependencyや出力pipelineの変更も不要です。 | Inkをgeometryで近似するため、pixel密度field/advectionがありません。raster処理なしでは立体的な拡散や細かな乱流混合に限界があります。 |
+| ローカルWebGL2 shader | browser reviewで結果が不十分と判断された場合の次候補です。fragment shaderでpixelごとにadvected noise/densityと色混合を評価できます。透明offscreen WebGL canvasを`drawImage`で既存2D surfaceへ合成すれば、外側の`renderEditorFrame`とcapture経路を維持できます。 | Ink専用GPU resource lifecycle、shader compile/fallback、alpha/color space検査、context loss処理、実出力検証が必要です。未実装であり、承認もありません。 |
+| PixiJS | WebGL/WebGL2とWebGPU rendererに加え、displacement/noise filterやblend modeを提供します。 | Effect 1種類のために新dependencyとrenderer lifecycleが増えます。現行文書ではWebGPUを成熟中/experimentalとし、本番にはWebGLを推奨しているため、小規模なローカルWebGL2 passに比べて利点は限定的です。 |
+| WebGPU | 将来のGPU経路候補です。 | 2D inkには不要です。browser APIの利用可能性やsecure context制約が互換性作業を増やします。将来3Dを検討する可能性だけでは導入理由になりません。 |
 
-The WebGL2 recommendation is conditional on a human/browser rejection after viewing these Canvas changes. WebGL supports accelerated 2D/3D browser graphics, and the existing 2D renderer can draw canvas image sources via `drawImage`; PixiJS documents WebGL as stable/recommended and WebGPU as experimental/maturing. References: [MDN WebGL](https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API), [MDN drawImage](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/drawImage), [PixiJS renderers](https://pixijs.com/guides/components/renderers), [MDN WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API), [MDN secure contexts](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts).
+WebGL2推奨は、今回のCanvas変更を人がbrowserで確認し、結果を不十分と判断した場合に限ります。WebGLはbrowser上で高速な2D/3D描画を提供し、既存2D rendererは`drawImage`でcanvas image sourceを描画できます。PixiJS文書ではWebGLを安定版/推奨、WebGPUをexperimental/成熟途上としています。参考資料： [MDN WebGL](https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API), [MDN drawImage](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/drawImage), [PixiJS renderers](https://pixijs.com/guides/components/renderers), [MDN WebGPU](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API), [MDN secure contexts](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts).
 
-No GPU implementation, dependency, schema, Timeline, Project, or Cloud contract change was made.
+GPU実装、dependency、schema、Timeline、Project、Cloud contractは変更していません。
 
-## Changed files
+## 変更ファイル
 
-- `frontend/src/renderer.ts` — plume ribbons, shared flow field, vortex branches and denser interior contour.
-- `frontend/src/editor-renderer.test.ts` — spatial union, branch shape, temporal continuity, response and clip regression checks.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/VISUAL_EFFECT_ROADMAP.md` — implementation status, performance bound and pending visual acceptance.
+- `frontend/src/renderer.ts` — plume ribbon、共有flow field、vortex branch、密度を上げた内側輪郭。
+- `frontend/src/editor-renderer.test.ts` — 空間的な結合、branch形状、時間的連続性、response、clipの回帰確認。
+- `CURRENT_TASK.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md`、`docs/ARCHITECTURE.md`、`docs/TEST_STRATEGY.md`、`docs/VISUAL_EFFECT_ROADMAP.md` — 実装状況、性能上限、未完了の視覚受け入れ。
 
-## Remaining acceptance
+## 残りの受け入れ確認
 
-Run the Editor in a real browser with demo1 and demo3; inspect silence/weak/strong source states, one and several Ink Effects, Region clips, and exported WebM. Compare the actual frames to the saved ink reference. Measure raster frame time/FPS. If those frames still read as separate geometric ribbons rather than connected ink, keep Canvas2D unchanged until an Ink-only WebGL2 offscreen prototype is separately authorized and its Preview/WebM compositing and seek determinism are tested.
+実browserでEditorを起動し、demo1/demo3を使って無音/弱/強source、Ink Effect 1つ/複数、Region clip、出力WebMを確認します。実frameを保存済みink referenceと比較し、raster frame時間/FPSを測定します。結果が連続したinkではなく独立したgeometry ribbonに見える場合でも、Ink専用WebGL2 offscreen prototypeが別途承認され、Preview/WebM合成とseekの決定性を検証するまではCanvas2Dを変更しません。

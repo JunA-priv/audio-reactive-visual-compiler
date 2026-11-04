@@ -17,6 +17,9 @@ CREATE POLICY projects_update_owner ON public.projects
     )::uuid
   );
 
+-- CREATE on public is needed only while this helper-owned function is replaced.
+-- Do not leave schema CREATE enabled on the runtime role.
+GRANT CREATE ON SCHEMA public TO arvc_project_writer;
 GRANT arvc_project_writer TO postgres WITH SET TRUE;
 SET ROLE arvc_project_writer;
 CREATE OR REPLACE FUNCTION public.update_project(
@@ -58,3 +61,4 @@ END
 $function$;
 RESET ROLE;
 REVOKE arvc_project_writer FROM postgres;
+REVOKE CREATE ON SCHEMA public FROM arvc_project_writer;

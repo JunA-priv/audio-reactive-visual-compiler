@@ -1,42 +1,42 @@
-# Step 7k-30 — WebM / MP4 video export
+# Step 7k-30 — WebM / MP4動画エクスポート
 
-**Status: partial.** MP4 selection and export now share the existing Canvas/MediaRecorder renderer and audio mix path. Frontend automated verification passed. No browser or browser automation runtime is available here, so real H.264/AAC availability, MP4 file generation/playback, and audio synchronization were not verified.
+**状態: 部分完了。** MP4の選択と書き出しは、既存のCanvas/MediaRecorderレンダラーおよび音声ミックス経路を共有します。Frontendの自動検証は成功しました。この環境にはブラウザーも自動化ランタイムもないため、実際のH.264/AAC対応、MP4の生成・再生、音声同期は未検証です。
 
-## Existing WebM path
+## 既存のWebM経路
 
-`frontend/src/video-export.ts` selects a supported WebM MIME type, captures the export Canvas using `captureStream(fps)`, and renders each frame through `renderEditorFrame`. When audio is included, it decodes the selected local file into Web Audio, connects the source to a `MediaStreamAudioDestinationNode`, and uses `AudioContext.currentTime` as the frame clock. The recorder emits chunks, then the editor downloads the Blob. Canvas/audio tracks and AudioContext are released in `finally`. This shared path remains in use for both formats.
+`frontend/src/video-export.ts` selects a supported WebM MIME type, captures the export Canvas using `captureStream(fps)`, and renders each frame through `renderEditorFrame`. When audio is included, it decodes the selected local file into Web Audio, connects the source to a `MediaStreamAudioDestinationNode`,し、フレームクロックには `AudioContext.currentTime` を使います。Recorderがチャンクを出力し、EditorがBlobをダウンロードします。Canvas/音声トラックとAudioContextは `finally` で解放します。この共通経路を両形式で使います。
 
-## MP4 implementation
+## MP4の実装
 
-- Silent MP4 candidates explicitly request `video/mp4;codecs="avc1.…"` (H.264/AVC).
-- Audio MP4 candidates explicitly request `video/mp4;codecs="avc1.…,mp4a.40.2"` (H.264/AVC + AAC LC).
-- `MediaRecorder.isTypeSupported()` is checked separately for silent and audio modes. No base MP4 MIME or non-AAC audio alternative is accepted.
-- On stop, the actual Recorder MIME must identify the selected container and required codec(s); the Blob must be nonempty and match the declared MIME. MP4 additionally requires an ISO BMFF `ftyp` box at the file header before it can be returned for `.mp4` download.
-- Unsupported combinations disable MP4 in the Export selector and disable export if the user changes the audio mode after selecting MP4. MP4 errors do not fall back to WebM.
-- The default remains WebM. Filenames use `.webm` or `.mp4` according to the verified selected format.
+- 無音MP4の候補では明示的に `video/mp4;codecs="avc1.…"` (H.264/AVC).
+- 音声付きMP4の候補では明示的に `video/mp4;codecs="avc1.…,mp4a.40.2"` (H.264/AVC + AAC LC).
+- `MediaRecorder.isTypeSupported()` は無音と音声付きの各モードで個別に確認します。基本MP4 MIMEやAAC以外の音声形式は受け付けません。
+- 停止時には実際のRecorder MIMEが選択したコンテナと必須コーデックを示すこと、Blobが空でなく宣言MIMEと一致することを確認します。さらにMP4ではファイル先頭にISO BMFFの`ftyp`ボックスがある場合に限り、`.mp4`ダウンロード用に返します。
+- 非対応の組み合わせではExportセレクターのMP4を無効にし、MP4選択後に音声モードを変更した場合も書き出しを無効にします。MP4エラー時にWebMへフォールバックしません。
+- 既定値は引き続きWebMです。ファイル名には検証済みの選択形式に応じて`.webm`または`.mp4`を使います。
 
-録画開始、録画中エラー、停止例外、空出力、Recorder MIME不一致、MP4 container signature mismatch are surfaced as failures. `finally` cleanup continues to stop all unique MediaStream tracks, disconnect/stop audio source, and close AudioContext.
+録画開始失敗、録画中エラー、停止時例外、空出力、Recorder MIME不一致、MP4コンテナシグネチャ不一致はエラーとして通知します。`finally`処理では、重複のないすべてのMediaStreamトラックを停止し、音声ソースを切断・停止してAudioContextを閉じます。
 
-## Compatibility and changed files
+## 互換性と変更ファイル
 
-The Preview/Export shared `renderEditorFrame`, Canvas capture cadence, audio clock, local audio decode, FPS/resolution choices, WebM MIME selection, Blueprint/Timeline/Project contracts, Renderer, and saved format are unchanged. No dependency, server encoder, FFmpeg conversion, API, database, or authentication change was made.
+Preview/Export共通の`renderEditorFrame`、Canvasキャプチャ間隔、音声クロック、ローカル音声デコード、FPS/解像度の選択、WebM MIME選択、Blueprint/Timeline/Projectの契約、Renderer、保存形式は変更していません。依存関係、サーバーエンコーダー、FFmpeg変換、API、データベース、認証にも変更はありません。
 
-- `frontend/src/video-export.ts` — MP4 MIME selection/validation and shared export format path; existing `exportWebM` remains available.
-- `frontend/src/VisualEditor.tsx` — WebM/MP4 selector, codec support state, format-specific dispatch and extension.
-- `frontend/src/video-export.test.ts` — support, audio mode, MP4 MIME/container, recorder failure, and cleanup tests.
-- `frontend/src/visual-editor.test.tsx` — default format, support-dependent selection, and exporter dispatch.
-- `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/CURRENT_STATE.md`, `CURRENT_TASK.md` — export contract, automated coverage, status.
+- `frontend/src/video-export.ts` — MP4 MIMEの選択・検証と共通書き出し経路。既存の`exportWebM`も引き続き利用可能です。
+- `frontend/src/VisualEditor.tsx` — WebM/MP4セレクター、コーデック対応状態、形式別の呼び出しと拡張子。
+- `frontend/src/video-export.test.ts` — 対応可否、音声モード、MP4 MIME/コンテナ、Recorder失敗、後処理のテスト。
+- `frontend/src/visual-editor.test.tsx` — 既定形式、対応状況に応じた選択、エクスポーター呼び出し。
+- `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/CURRENT_STATE.md`, `CURRENT_TASK.md` — 書き出し契約、自動テスト範囲、状態。
 
-## Verification
+## 検証
 
 - Frontend full suite: **177 tests passed** (13 files).
-- `npm run typecheck`: passed.
-- `npm run lint`: passed.
-- `npm run build`: passed.
-- `git diff --check`: passed.
-- MP4 mock tests confirm requested H.264/AAC MIME, audio/no-audio track composition, correct container signature gate, and refusal of WebM data masquerading as MP4.
-- Environment inspection found no Chrome/Chromium/Firefox executable and no installed Playwright/Puppeteer runtime. The optional browser adapter entry in the lockfile is not installed/configured as a browser test runtime.
+- `npm run typecheck`: 成功。
+- `npm run lint`: 成功。
+- `npm run build`: 成功。
+- `git diff --check`: 成功。
+- MP4モックテストで、要求するH.264/AAC MIME、音声あり/なしのトラック構成、コンテナシグネチャ判定、MP4を装ったWebMデータの拒否を確認しました。
+- 環境内にChrome/Chromium/Firefox実行ファイルおよびPlaywright/Puppeteerランタイムはありませんでした。lockfileにある任意のブラウザーアダプターもブラウザーテスト用ランタイムとして導入・設定されていません。
 
-## Remaining acceptance
+## 残る受け入れ確認
 
-In a browser with MediaRecorder support, test both silent and audio MP4 modes, then inspect the files with `ffprobe` for MP4 container, H.264 video, AAC audio (when enabled), duration, and playback. Also compare the same Timeline/Effect and audio clock against WebM. The test mocks verify selection/validation logic, not actual encoder support, MP4 bytes, visual quality, or AV synchronization.
+MediaRecorder対応ブラウザーで無音MP4と音声付きMP4を試し、`ffprobe`でMP4コンテナ、H.264映像、（有効時の）AAC音声、長さ、再生を確認してください。同じTimeline/Effectと音声クロックをWebMとも比較してください。モックテストで検証できるのは選択・検証ロジックであり、実際のエンコーダー対応、MP4データ、画質、音声映像同期ではありません。

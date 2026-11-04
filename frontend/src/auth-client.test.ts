@@ -27,11 +27,20 @@ describe('local Supabase auth client', () => {
     expect(readSession()).toBeNull();
   });
 
-  it('rejects non-loopback Supabase settings before sending credentials', async () => {
+  it('rejects arbitrary hosted Supabase settings before sending credentials', async () => {
     vi.stubEnv('VITE_SUPABASE_URL', 'https://supabase.example');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'public-key');
     const request = vi.fn(); vi.stubGlobal('fetch', request);
-    await expect(signIn('user@example.test', 'password')).rejects.toThrow(/loopback/);
+    await expect(signIn('user@example.test', 'password')).rejects.toThrow(/canonical Hosted/);
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it('uses canonical Hosted Supabase HTTPS auth endpoints', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://abcdefghijklmnopqrst.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'publishable-test-key');
+    const request = vi.fn(async () => new Response(JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_in: 3600 }), { status: 200 }));
+    vi.stubGlobal('fetch', request);
+    await signIn('user@example.test', 'password');
+    expect(request).toHaveBeenCalledWith('https://abcdefghijklmnopqrst.supabase.co/auth/v1/token?grant_type=password', expect.any(Object));
   });
 });

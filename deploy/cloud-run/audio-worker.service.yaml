@@ -1,0 +1,63 @@
+# Template only. Replace project, image digest, service identity, and secret refs.
+# Do not apply without the Step 7k-51 production approval gate.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: arvc-audio-worker
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/launch-stage: GA
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "2"
+        run.googleapis.com/cpu-throttling: "true"
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      containerConcurrency: 1
+      timeoutSeconds: 780
+      serviceAccountName: arvc-audio-worker@PROJECT_ID.iam.gserviceaccount.com
+      containers:
+        - image: REGION-docker.pkg.dev/PROJECT_ID/arvc/api@sha256:REPLACE_WITH_VALIDATED_DIGEST
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          env:
+            - name: PORT
+              value: "8080"
+            - name: ARVC_SERVICE_ROLE
+              value: worker
+            - name: AUDIO_ANALYSIS_TRANSPORT
+              value: cloud_tasks
+            - name: AUDIO_ANALYSIS_CLOUD_TASKS_ENABLED
+              value: "false"
+            - name: AUDIO_ANALYSIS_ENABLED
+              value: "true"
+            - name: AUDIO_ANALYSIS_JOBS_ENABLED
+              value: "true"
+            - name: AUDIO_ANALYSIS_THREADS
+              value: "2"
+            - name: AUTH_ENV
+              value: hosted
+            - name: SUPABASE_URL
+              value: https://PROJECT_REF.supabase.co
+            - name: AUDIO_WORKER_URL
+              value: https://arvc-audio-worker-HASH-REGION.a.run.app
+            - name: CLOUD_TASKS_PROJECT
+              value: PROJECT_ID
+            - name: CLOUD_TASKS_LOCATION
+              value: REGION
+            - name: CLOUD_TASKS_QUEUE
+              value: scnet-analysis
+            - name: CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT
+              value: arvc-task-invoker@PROJECT_ID.iam.gserviceaccount.com
+            - name: SUPABASE_AUDIO_ANALYSIS_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: hosted-audio-worker-dsn
+                  key: latest

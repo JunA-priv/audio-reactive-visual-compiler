@@ -1,3 +1,4 @@
+import { apiUrl } from './api-connection';
 import { validateFeatureTimeline } from './renderer';
 import type { FeatureTimeline } from './editor-model';
 
@@ -95,22 +96,102 @@ export function encodePCM16StereoWav(left: Float32Array, right: Float32Array): A
   return buffer;
 }
 
-export async function analyzeAudioClip(file: File, accessToken: string, signal: AbortSignal, kickGateMode: KickGateMode = 'hard'): Promise<AudioAnalysis> {
+export type AudioJobStatus = { jobId: string; state: 'queued'|'running'|'succeeded'|'failed'|'canceled'; queuePosition?: number; errorCode?: string; cancelRequested?: boolean };
+const ACTIVE_JOB_KEY = 'arvc.audio.analysis.job.v1';
+export function hasSavedAudioAnalysisJob():boolean{return Boolean(sessionStorage.getItem(ACTIVE_JOB_KEY));}
+export function cancelSavedAudioAnalysisJob(accessToken:string):void{
+  const jobId=sessionStorage.getItem(ACTIVE_JOB_KEY);if(!jobId)return;sessionStorage.removeItem(ACTIVE_JOB_KEY);
+  void fetch(apiUrl(`/api/v1/audio/jobs/${encodeURIComponent(jobId)}`),{method:'DELETE',headers:{Authorization:`Bearer ${accessToken}`}}).catch(()=>undefined);
+}
+
+export async function analyzeAudioClip(file: File, accessToken: string, signal: AbortSignal, kickGateMode: KickGateMode = 'hard', onJobStatus?: (status: AudioJobStatus) => void): Promise<AudioAnalysis> {
+  if(import.meta.env.VITE_AUDIO_ANALYSIS_JOBS_ENABLED==='true')return analyzeQueuedAudioClip(file,accessToken,signal,kickGateMode,onJobStatus);
+  return analyzeAudioClipSync(file,accessToken,signal,kickGateMode);
+}
+
+export async function analyzeQueuedAudioClip(file: File, accessToken: string, signal: AbortSignal, kickGateMode: KickGateMode = 'hard', onJobStatus?: (status: AudioJobStatus) => void): Promise<AudioAnalysis> {
   if (file.type !== 'audio/wav' || file.size <= 44 || file.size > MAX_ANALYSIS_REQUEST_BYTES) throw new Error('解析用WAVクリップの形式またはサイズが不正です。');
   const form = new FormData();
   form.append('audio', file, file.name);
   form.append('kickGateMode', kickGateMode);
-  const response = await fetch('/api/v1/audio/analyze', { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: form, signal });
+  let response = await fetch(apiUrl('/api/v1/audio/jobs'), { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Idempotency-Key': crypto.randomUUID() }, body: form, signal });
   const raw: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     if (response.status === 401) { window.dispatchEvent(new Event('arvc-auth-expired')); throw new Error('セッションが切れました。再度ログインしてください。'); }
     if (response.status === 413) throw new Error('トリミング音声が16 MiBを超えています。');
     if (response.status === 422) throw new Error('解析サーバーが音声データを受け付けませんでした。音声形式と60秒以内の選択範囲を確認してください。');
-    if (response.status === 429) throw new Error('別の音声解析が進行中です。完了後に再試行してください。');
+    if (response.status === 429) throw new Error('解析キューが満杯です。少し待ってから再試行してください。');
     if (response.status === 504) throw new Error('音声解析が制限時間を超えました。');
     if (response.status === 499 || signal.aborted) throw new DOMException('分析を中断しました。', 'AbortError');
+    throw new Error(readJobError(raw) ?? '音声解析に失敗しました。');
+  }
+  const accepted = raw as { jobId?: unknown; state?: unknown } | null;
+  if (!accepted || typeof accepted.jobId !== 'string' || accepted.state !== 'queued') throw new Error('解析ジョブ応答の形式が不正です。');
+  const jobId = accepted.jobId;
+  sessionStorage.setItem(ACTIVE_JOB_KEY, jobId);
+  try {
+    let status: AudioJobStatus = { jobId, state: 'queued' };
+    onJobStatus?.(status);
+    while (status.state === 'queued' || status.state === 'running') {
+      await delay(1200, signal);
+      response = await fetch(apiUrl(`/api/v1/audio/jobs/${encodeURIComponent(jobId)}`), { headers: { Authorization: `Bearer ${accessToken}` }, signal });
+      const stateRaw: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(readJobError(stateRaw) ?? '解析ジョブの状態を取得できません。');
+      status = parseJobStatus(stateRaw);
+      onJobStatus?.(status);
+    }
+    if (status.state === 'canceled') throw new DOMException('分析を中断しました。', 'AbortError');
+    if (status.state === 'failed') throw new Error(`音声解析に失敗しました。(${status.errorCode ?? 'analysis_failed'})`);
+    response = await fetch(apiUrl(`/api/v1/audio/jobs/${encodeURIComponent(jobId)}/result`), { headers: { Authorization: `Bearer ${accessToken}` }, signal });
+    const result: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(readJobError(result) ?? '解析結果を取得できません。');
+    return parseAnalysisResult(result);
+  } catch (error) {
+    if (signal.aborted) {
+      void fetch(apiUrl(`/api/v1/audio/jobs/${encodeURIComponent(jobId)}`), { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => undefined);
+      throw new DOMException('分析を中断しました。', 'AbortError');
+    }
+    throw error;
+  } finally {
+    if (sessionStorage.getItem(ACTIVE_JOB_KEY) === jobId) sessionStorage.removeItem(ACTIVE_JOB_KEY);
+  }
+}
+
+export async function analyzeAudioClipSync(file:File,accessToken:string,signal:AbortSignal,kickGateMode:KickGateMode='hard'):Promise<AudioAnalysis>{
+  if(file.type!=='audio/wav'||file.size<=44||file.size>MAX_ANALYSIS_REQUEST_BYTES)throw new Error('解析用WAVクリップの形式またはサイズが不正です。');
+  const form=new FormData();form.append('audio',file,file.name);form.append('kickGateMode',kickGateMode);
+  const response=await fetch(apiUrl('/api/v1/audio/analyze'),{method:'POST',headers:{Authorization:`Bearer ${accessToken}`},body:form,signal});
+  const raw:unknown=await response.json().catch(()=>null);
+  if(!response.ok){
+    if(response.status===401){window.dispatchEvent(new Event('arvc-auth-expired'));throw new Error('セッションが切れました。再度ログインしてください。');}
+    if(response.status===413)throw new Error('トリミング音声が16 MiBを超えています。');
+    if(response.status===422)throw new Error('解析サーバーが音声データを受け付けませんでした。音声形式と60秒以内の選択範囲を確認してください。');
+    if(response.status===429)throw new Error('別の音声解析が進行中です。完了後に再試行してください。');
+    if(response.status===504)throw new Error('音声解析が制限時間を超えました。');
+    if(response.status===499||signal.aborted)throw new DOMException('分析を中断しました。','AbortError');
     throw new Error('音声解析に失敗しました。');
   }
+  return parseAnalysisResult(raw);
+}
+
+export async function restoreAudioAnalysisJob(accessToken:string,signal:AbortSignal,onJobStatus?:(status:AudioJobStatus)=>void):Promise<AudioAnalysis|null>{
+  const jobId=sessionStorage.getItem(ACTIVE_JOB_KEY);if(!jobId)return null;
+  let status:AudioJobStatus={jobId,state:'queued'};
+  try{
+    while(status.state==='queued'||status.state==='running'){
+      const response=await fetch(apiUrl(`/api/v1/audio/jobs/${encodeURIComponent(jobId)}`),{headers:{Authorization:`Bearer ${accessToken}`},signal});
+      const value:unknown=await response.json().catch(()=>null);
+      if(!response.ok)throw new Error(readJobError(value)??'解析ジョブの状態を復元できません。');
+      status=parseJobStatus(value);onJobStatus?.(status);if(status.state==='queued'||status.state==='running')await delay(1200,signal);
+    }
+    if(status.state==='canceled')throw new DOMException('分析を中断しました。','AbortError');
+    if(status.state==='failed')throw new Error(`音声解析に失敗しました。(${status.errorCode??'analysis_failed'})`);
+    const response=await fetch(apiUrl(`/api/v1/audio/jobs/${encodeURIComponent(jobId)}/result`),{headers:{Authorization:`Bearer ${accessToken}`},signal});
+    const value:unknown=await response.json().catch(()=>null);if(!response.ok)throw new Error(readJobError(value)??'解析結果を復元できません。');return parseAnalysisResult(value);
+  }finally{if(!signal.aborted&&sessionStorage.getItem(ACTIVE_JOB_KEY)===jobId)sessionStorage.removeItem(ACTIVE_JOB_KEY);}
+}
+
+function parseAnalysisResult(raw: unknown): AudioAnalysis {
   const result = raw as AnalysisResponse | null;
   if (!result || typeof result !== 'object' || !isRecord(result.analysisMetadata)) throw new Error('解析応答の形式が不正です。');
   const summary = result.musicSummary as MusicSummary;
@@ -120,5 +201,13 @@ export async function analyzeAudioClip(file: File, accessToken: string, signal: 
   if (summary.durationMs !== timeline.durationMs || summary.durationMs < 1 || summary.durationMs > 60_000) throw new Error('解析結果の音源長とFeature Timelineが一致しません。');
   return { featureTimeline: timeline, musicSummary: summary, analysisMetadata: result.analysisMetadata, durationMs: timeline.durationMs, frameCount: Math.round(timeline.durationMs * TARGET_SAMPLE_RATE / 1000) };
 }
+
+function parseJobStatus(value: unknown): AudioJobStatus {
+  if (!isRecord(value) || typeof value.jobId !== 'string' || !['queued','running','succeeded','failed','canceled'].includes(String(value.state))) throw new Error('解析ジョブ状態の形式が不正です。');
+  return { jobId: value.jobId, state: value.state as AudioJobStatus['state'], ...(Number.isSafeInteger(value.queuePosition) ? { queuePosition: value.queuePosition as number } : {}), ...(typeof value.errorCode === 'string' ? { errorCode: value.errorCode } : {}), ...(typeof value.cancelRequested === 'boolean' ? { cancelRequested: value.cancelRequested } : {}) };
+}
+
+function readJobError(value: unknown): string | null { return isRecord(value) && isRecord(value.error) && typeof value.error.message === 'string' ? value.error.message : null; }
+function delay(ms: number, signal: AbortSignal): Promise<void> { return new Promise((resolve,reject)=>{ if(signal.aborted){reject(new DOMException('分析を中断しました。','AbortError'));return;} const timer=setTimeout(resolve,ms); signal.addEventListener('abort',()=>{clearTimeout(timer);reject(new DOMException('分析を中断しました。','AbortError'));},{once:true}); }); }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }

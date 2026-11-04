@@ -1,19 +1,159 @@
 from __future__ import annotations
 
+import csv
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 from compare import (
+    CSV_FIELDS,
+    GATE_MODES,
+    SERIES_FEATURES,
+    build_feature_rows,
+    build_series_comparisons,
     frame_interval,
+    is_official_scnet_origin,
     match_events,
     stem_metrics,
     timeline_summary,
     validate_stems,
     verify_checkpoint,
+    write_feature_csv,
 )
 
 
 class CompareTests(unittest.TestCase):
+    def test_feature_csv_has_all_gate_event_and_series_records(self) -> None:
+        summaries = {"demucs": {}, "scnet": {}}
+        comparisons = {}
+        timelines = {"demucs": {}, "scnet": {}}
+        for gate in GATE_MODES:
+            summaries["demucs"][gate] = {
+                "events": {name: {"count": 2} for name in ("kickEvents", "snareEvents")},
+            }
+            summaries["scnet"][gate] = {
+                "events": {name: {"count": 1} for name in ("kickEvents", "snareEvents")},
+            }
+            comparisons[gate] = {
+                name: match_events([100, 200], [110])
+                for name in ("kickEvents", "snareEvents")
+            }
+            timelines["demucs"][gate] = {}
+            timelines["scnet"][gate] = {}
+            for feature in SERIES_FEATURES:
+                summaries["demucs"][gate].setdefault("series", {})[feature] = {"count": 2}
+                summaries["scnet"][gate].setdefault("series", {})[feature] = {"count": 2}
+                timelines["demucs"][gate][feature] = [
+                    {"timeMs": 0, "value": 0.0}, {"timeMs": 10, "value": 1.0}
+                ]
+                timelines["scnet"][gate][feature] = [
+                    {"timeMs": 0, "value": 0.0}, {"timeMs": 10, "value": 0.5}
+                ]
+
+        series_comparisons = build_series_comparisons(timelines)
+        rows = build_feature_rows(summaries, comparisons, series_comparisons)
+        self.assertEqual(len(rows), 28)
+        self.assertEqual({row["gateMode"] for row in rows}, set(GATE_MODES))
+        event_rows = [row for row in rows if row["feature"].endswith("Events")]
+        series_rows = [row for row in rows if row["feature"] in SERIES_FEATURES]
+        self.assertEqual(len(event_rows), 8)
+        self.assertEqual(len(series_rows), 20)
+        self.assertEqual(event_rows[0]["matchedWithin80ms"], 1)
+        self.assertEqual(event_rows[0]["medianAbsOffsetMs"], 10.0)
+        self.assertEqual(event_rows[0]["p90AbsOffsetMs"], 10.0)
+        self.assertEqual(event_rows[0]["maxAbsOffsetMs"], 10.0)
+        self.assertEqual(event_rows[0]["matchRate"], 0.5)
+        self.assertEqual(series_rows[0]["meanAbsoluteDifference"], 0.25)
+        self.assertEqual(series_rows[0]["normalizedMeanAbsoluteDifference"], 0.5)
+        self.assertAlmostEqual(series_rows[0]["pearsonCorrelation"], 1.0)
+        self.assertEqual(series_rows[0]["peakTimeDeltaMs"], 0)
+        json_comparison = series_comparisons["off"]["bassEnvelope"]
+        self.assertEqual(
+            series_rows[0]["meanAbsoluteDifference"],
+            json_comparison["meanAbsoluteDifference"],
+        )
+        self.assertEqual(
+            series_rows[0]["pearsonCorrelation"],
+            json_comparison["pearsonCorrelation"],
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "features.csv"
+            write_feature_csv(path, rows)
+            with path.open(encoding="utf-8", newline="") as stream:
+                reader = csv.DictReader(stream)
+                persisted = list(reader)
+                self.assertEqual(tuple(reader.fieldnames or ()), CSV_FIELDS)
+            self.assertEqual(len(persisted), 28)
+            self.assertEqual(persisted[0]["demucsCount"], "2")
+            self.assertEqual(persisted[0]["matchedWithin80ms"], "1")
+            self.assertEqual(persisted[2]["pearsonCorrelation"], "1.0")
+            self.assertEqual(persisted[0]["pearsonCorrelation"], "")
+
+    def test_feature_series_missing_misaligned_empty_and_non_finite(self) -> None:
+        from compare import _compare_series
+
+        empty = _compare_series([], [])
+        self.assertEqual(empty["comparisonStatus"], "empty")
+        self.assertIsNone(empty["pearsonCorrelation"])
+        misaligned = _compare_series(
+            [{"timeMs": 0, "value": 1.0}], [{"timeMs": 10, "value": 1.0}]
+        )
+        self.assertEqual(misaligned["comparisonStatus"], "misaligned")
+        self.assertIsNone(misaligned["meanAbsoluteDifference"])
+        different_lengths = _compare_series(
+            [{"timeMs": 0, "value": 1.0}],
+            [{"timeMs": 0, "value": 1.0}, {"timeMs": 10, "value": 0.5}],
+        )
+        self.assertEqual(different_lengths["comparisonStatus"], "misaligned")
+        missing = _compare_series([{"timeMs": 0}], [{"timeMs": 0, "value": 0.0}])
+        self.assertEqual(missing["comparisonStatus"], "missing_or_invalid_values")
+        zero_baseline = _compare_series(
+            [{"timeMs": 0, "value": 0.0}, {"timeMs": 10, "value": 0.0}],
+            [{"timeMs": 0, "value": 0.0}, {"timeMs": 10, "value": 0.0}],
+        )
+        self.assertEqual(zero_baseline["comparisonStatus"], "ok")
+        self.assertIsNone(zero_baseline["normalizedMeanAbsoluteDifference"])
+        self.assertIsNone(zero_baseline["pearsonCorrelation"])
+        with self.assertRaises(ValueError):
+            _compare_series(
+                [{"timeMs": 0, "value": float("nan")}],
+                [{"timeMs": 0, "value": 0.0}],
+            )
+
+    def test_empty_feature_csv_still_has_compatible_header(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "features.csv"
+            write_feature_csv(path, [])
+            with path.open(encoding="utf-8", newline="") as stream:
+                reader = csv.reader(stream)
+                self.assertEqual(tuple(next(reader)), CSV_FIELDS)
+                self.assertEqual(list(reader), [])
+
+    def test_official_scnet_origin_allows_case_variants(self) -> None:
+        for origin in (
+            "https://github.com/starrytong/SCNet.git",
+            "HTTPS://GITHUB.COM/StarryTong/scnet",
+            "git@github.com:StarryTong/SCNET.git",
+        ):
+            with self.subTest(origin=origin):
+                self.assertTrue(is_official_scnet_origin(origin))
+
+    def test_scnet_origin_rejects_other_or_malformed_repositories(self) -> None:
+        for origin in (
+            "https://github.com/other/SCNet.git",
+            "https://github.com/starrytong/SCNet-fork.git",
+            "https://github.com.evil.example/starrytong/SCNet.git",
+            "https://github.com/starrytong/SCNet/extra.git",
+            "https://github.com//starrytong/SCNet.git",
+            "http://github.com/starrytong/SCNet.git",
+            "https://user@github.com/starrytong/SCNet.git",
+            "git@github.com:starrytong/SCNet-evil.git",
+        ):
+            with self.subTest(origin=origin):
+                self.assertFalse(is_official_scnet_origin(origin))
+
     def test_four_stem_shape_and_recomposition_metrics(self) -> None:
         mix = np.ones((64, 2), dtype=np.float32) * 0.4
         stems = {name: mix / 4 for name in ("drums", "bass", "vocals", "other")}

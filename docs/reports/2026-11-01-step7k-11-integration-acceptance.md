@@ -1,63 +1,60 @@
-# Step 7k-11 — Integrated Acceptance Verification
+# Step 7k-11 — 統合受け入れ検証
 
-**Status: partial.** Automated contract and build checks were run. The required browser/GPU, actual playback, WebM, and performance acceptance could not be completed in this environment.
+**状態：一部完了。** 自動contract検査とbuild確認を実施しました。この環境では必要なbrowser/GPU、実際の再生、WebM、性能の受け入れ検査を完了できませんでした。
 
-## Environment
+## 環境
 
-- Frontend: Node/npm toolchain available.
-- Python Island: repository `.venv` available.
-- Go: `/usr/local/go/bin/go` available. Go build cache was redirected to `/tmp` because the default user cache is read-only in this environment.
-- Media inspection: `ffmpeg` and `ffprobe` available.
-- Not available: Chrome/Chromium, Firefox, WebGL2 browser runtime, standalone GLSL compiler. No Playwright/Puppeteer browser installation was found.
+- Frontend：Node/npm toolchainを利用可能。
+- Python Island：repositoryの`.venv`を利用可能。
+- Go：`/usr/local/go/bin/go`を利用可能。この環境では既定のuser cacheがread-onlyのため、Go build cacheを`/tmp`に変更。
+- media確認：`ffmpeg`と`ffprobe`を利用可能。
+- 利用不可：Chrome/Chromium、Firefox、WebGL2 browser runtime、単体GLSL compiler。Playwright/Puppeteer browserのインストールも見つかりませんでした。
 
-## Effect and Audio Source results
+## EffectとAudio Sourceの結果
 
-The Frontend suite passed across all 20 Effect kinds and includes renderer/editor/validator, binding, region geometry, deterministic seek, and Project/Cloud contract tests. This establishes automated command and persistence contract coverage, not human visual acceptance of each Effect.
+Frontend suiteは20種類すべてのEffectを含めて成功しました。renderer/editor/validator、Binding、Region geometry、決定的seek、Project/Cloud contract testを含みます。これは描画commandと永続化contractの自動検証であり、Effectごとの人手による視覚受け入れを示すものではありません。
 
-The seven source values (`kick.events`, `snare.events`, `bass.envelope`, `drums.energy`, `vocals.envelope`, `other.envelope`, `music.energy`) remain covered by existing enum/schema and renderer tests. No live browser interaction was available to verify changing each source and observing it during playback.
+7種類のsource値（`kick.events`、`snare.events`、`bass.envelope`、`drums.energy`、`vocals.envelope`、`other.envelope`、`music.energy`）は既存enum/schemaとrenderer testで引き続き検証されています。各sourceを変更し、再生中の反応を確認するlive browser操作はできませんでした。
 
-| Area | Automated result | Manual/runtime result |
+| 領域 | 自動検証結果 | 手動/runtime結果 |
 |---|---|---|
-| 20 Effect kinds, Editor and renderer contracts | Frontend suite passed (137 tests) | Individual visual appearance not inspected |
-| 7 Audio Sources and event/continuous contracts | Covered by existing tests and schema checks | Live source response not exercised |
-| Region / deterministic evaluation | Existing geometry, clip, and seek tests passed | Stage/Rectangle/Polygon pixels not inspected |
-| Ink WebGL2 shader, lifecycle, compositing | Source/command contract tests passed | Shader compile/link, context loss, resize and GPU pixels unverified |
-| Project / Cloud v1 | Existing roundtrip tests passed in Frontend and Go contract packages | No manual editor save/reload session |
+| 20種類のEffect、Editor/renderer contract | Frontend suite成功（137 test） | 個別の見た目は未確認 |
+| 7種類のAudio Sourceとevent/continuous contract | 既存testとschema確認で検証 | 実際のsource応答は未実施 |
+| Region/決定的評価 | geometry、clip、seekの既存test成功 | Stage/Rectangle/Polygonのpixel未確認 |
+| Ink WebGL2 shader、lifecycle、合成 | source/command contract test成功 | shader compile/link、context loss、resize、GPU pixelは未確認 |
+| Project/Cloud v1 | FrontendとGo contract packageの既存roundtrip test成功 | 手動Editor save/reload未実施 |
 
-## Demo assets
+## Demo asset
 
-`demo-assets/source/` contains all three MP3s. Feature Timeline and Spectrum sidecars are present, as are the published-local `frontend/public/demo/` copies. `ffprobe` reported:
+`demo-assets/source/`にはMP3が3曲あります。Feature TimelineとSpectrum sidecar、および公開ローカル用の`frontend/public/demo/` copyもあります。`ffprobe`の結果：
 
-| Demo | Audio duration | Timeline duration | Difference | Spectrum |
+| Demo | 音声長 | Timeline長 | 差 | Spectrum |
 |---|---:|---:|---:|---|
-| demo1 | 180.240s | 180.200s | 40ms | 32 bands, 20ms hop, 9,010 frames / 180.200s |
-| demo2 | 166.080s | 166.040s | 40ms | 32 bands, 20ms hop, 8,302 frames / 166.040s |
-| demo3 | 118.080s | 118.054s | 26ms | 32 bands, 20ms hop, 5,903 frames / 118.060s |
+| demo1 | 180.240s | 180.200s | 40ms | 32 bands、20ms hop、9,010 frames / 180.200s |
+| demo2 | 166.080s | 166.040s | 40ms | 32 bands、20ms hop、8,302 frames / 166.040s |
+| demo3 | 118.080s | 118.054s | 26ms | 32 bands、20ms hop、5,903 frames / 118.060s |
 
-The Spectrum frame counts are derived from the quantized byte count divided by 32 bands; their duration is consistent with the Timeline within a 20ms frame. Audio was not played in a browser, so load, pause/resume, seek, end-of-track handling, and audible/visual synchronization are unverified. Demo publication approval and asset gates were not changed.
+Spectrum frame数はquantize後のbyte数を32 bandsで割って求めています。durationはTimelineと20ms frame内で一致します。browserで音声を再生していないため、load、pause/resume、seek、track終端処理、聴覚/視覚同期は未確認です。Demo公開の承認とasset gateは変更していません。
 
-## Preview, WebM, and performance
+## Preview、WebM、性能
 
-The shared `renderEditorFrame` code path and its automated tests remain in place. No browser was available to render a Preview or produce a WebM. Therefore GPU Ink inclusion, visual Preview/WebM equality, encoded playback, Codec/FPS/resolution/duration, audio synchronization, and Effect ordering in encoded pixels remain unverified. No FPS, frame-time percentile, GPU/CPU load, memory, or export-time measurement was taken. `ffprobe` was used only to inspect source audio durations; no WebM file was generated.
+共有`renderEditorFrame`経路と自動testは維持されています。Preview描画やWebM生成を行えるbrowserはありませんでした。そのためGPU Inkの有無、PreviewとWebMの視覚一致、encode後の再生、Codec/FPS/解像度/duration、音声同期、encode後pixel上のEffect順は未確認です。FPS、frame時間percentile、GPU/CPU負荷、memory、export時間は測定していません。`ffprobe`はsource音声の長さ確認だけに使い、WebMは作成していません。
 
-## Test results
+## Test結果
 
-- Frontend `npm test -- --run` — passed, 137 tests across 12 files.
-- Frontend `npm run typecheck` — passed.
-- Frontend `npm run lint` — passed.
-- Frontend `npm run build` — passed.
-- Python `python -m pytest -q` (repository venv) — passed, 27 tests.
-- Python `mypy --strict` — passed.
-- Python `ruff check src tests` — reports 16 E501 line-length findings across unchanged Python source/test files. `ruff check --ignore E501 src tests` passes. No Python file was changed for this task.
-- Go `go test ./...` — packages before `internal/service` passed; the service suite stops at `TestOpenAIResponsesRequestUsesStrictStructuredOutput` because `httptest.NewServer` cannot bind `[::1]` in the sandbox (`operation not permitted`).
-- Go targeted Blueprint/Project tests and selected service schema/Timeline tests — passed.
-- Go `go vet ./...` — passed.
-- `git diff --check` — passed.
+- Frontend `npm test -- --run`：12 file、137 test成功。
+- Frontend `npm run typecheck`、`npm run lint`、`npm run build`：成功。
+- Python `python -m pytest -q`（repository venv）：27 test成功。
+- Python `mypy --strict`：成功。
+- Python `ruff check src tests`：変更していないPython source/test fileにE501行長違反が16件あると報告。`ruff check --ignore E501 src tests`は成功。このtaskではPython fileを変更していません。
+- Go `go test ./...`：`internal/service`より前のpackageは成功。service suiteは`httptest.NewServer`がsandbox内で`[::1]`へbindできず（`operation not permitted`）、`TestOpenAIResponsesRequestUsesStrictStructuredOutput`で停止。
+- Go Blueprint/Project対象testと一部service schema/Timeline test：成功。
+- Go `go vet ./...`、`git diff --check`：成功。
 
-## Bugs and changes
+## 不具合と変更
 
-No new product defect was confirmed from the checks available, so no implementation code was changed. Only task/status documentation and this report were updated. No API, DB, Auth, Hosted, dependency, Python, OpenAI runtime, or Effect behavior changes were made; no GitHub push was performed.
+取得できた確認範囲では新たな製品不具合を確認しなかったため、実装コードは変更していません。task/status文書と本reportだけを更新しました。API、DB、Auth、Hosted環境、dependency、Python、OpenAI runtime、Effect挙動は変更していません。GitHubへのpushもしていません。
 
-## Remaining acceptance work
+## 残りの受け入れ作業
 
-Run the 20-Effect visual matrix in a WebGL2-capable browser, exercise all seven sources with the three Demo tracks, verify Ink polygon clipping/opacity/gradient and context lifecycle in actual pixels, export and play audio/video WebM, and record FPS/frame time/resource usage. Re-run the full Go suite in an environment that permits IPv6 loopback binding. Review or baseline the existing Ruff E501 findings separately.
+WebGL2対応browserで20種類のEffect visual matrixを確認し、3曲のDemoで7種類すべてのsourceを試します。実pixelでInkのpolygon clipping/opacity/gradientとcontext lifecycleを検証し、音声付き/音声なしWebMをexport・再生して、FPS/frame time/resource usageを記録します。IPv6 loopback bindが可能な環境でGo suite全体を再実行します。既存Ruff E501 findingsは別途reviewまたはbaseline化してください。

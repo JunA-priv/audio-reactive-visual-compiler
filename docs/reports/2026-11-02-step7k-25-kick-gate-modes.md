@@ -1,64 +1,64 @@
-# Step 7k-25 — Kick Detection Gate Modes
+# Step 7k-25 — Kick検出ゲートモード
 
-**Status: partial.** Gate modes, request propagation, UI and automated validation are complete. Windows Chrome visual acceptance and labeled acoustic accuracy remain unverified.
+**状態: 部分完了。** ゲートモード、リクエストへの値の伝達、UI、自動検証は完了しています。Windows版Chromeでの目視受け入れと、ラベル付き音響データによる精度評価は未検証です。
 
-## Detection modes
+## 検出モード
 
-The detector still extracts the same 2048-sample FFT bands/features at a 10ms hop and uses the same score formula. Only four existing acceptance gates vary. Values below are `(adaptive score multiplier, adaptive score absolute floor, low-band p65 multiplier, minimum sub/body ratio, maximum 80ms decay ratio)`:
+検出器は従来と同じ2048サンプルのFFT帯域・特徴量を10msホップで抽出し、同じスコア式を使用します。変更されるのは既存の4つの採用ゲートだけです。以下の値は（適応スコア倍率、適応スコア絶対下限、低域p65倍率、sub/body最小比、80ms減衰比の最大値）です。
 
-| Mode | Values |
+| モード | 値 |
 |---|---|
-| Off | `(0, 0, 0, 0, 1)`; these four gates are bypassed |
+| Off | `(0, 0, 0, 0, 1)`。4つのゲートを迂回します |
 | Soft | `(0.08, 0.035, 0.04, 0.40, 0.90)` |
 | Middle | `(0.13, 0.055, 0.08, 0.55, 0.70)` |
-| Hard | `(0.18, 0.08, 0.12, 0.70, 0.50)`; preserves the prior detector conditions |
+| Hard | `(0.18, 0.08, 0.12, 0.70, 0.50)`。従来の検出条件を維持します |
 
-Off still requires positive nonzero score and retains local-maximum selection and the 120ms candidate merge, so silence does not produce events and duplicate peaks are still merged. The gate thresholds are ordered from less to more strict. The same detector implementation is used for all modes; no new detection formula, dependency or Demucs pass was added.
+Offでもスコアが正でゼロ以外であることを要求し、局所最大値の選択と120msの候補統合を維持します。そのため無音からイベントは発生せず、重複ピークも統合されます。ゲート閾値は緩いものから厳しいものの順です。全モードで同じ検出器を使い、新しい検出式、依存関係、Demucsパスは追加していません。
 
-## Audio Analyze API and UI
+## Audio Analyze APIとUI
 
-`POST /api/v1/audio/analyze` accepts an optional multipart text field `kickGateMode=off|soft|middle|hard`. Omission defaults to Hard for existing clients. Unknown/duplicate values and unexpected multipart fields are rejected. The selected value is passed through the Go runner as a fixed Python CLI argument; the CLI independently defaults to Hard and validates the same set. This is an additive request field; success response shape, Feature Timeline v1, `kickEvents` and `kickEventStrengths` are unchanged.
+`POST /api/v1/audio/analyze` は任意のmultipartテキストフィールド `kickGateMode=off|soft|middle|hard` を受け付けます。省略時は既存クライアントとの互換性のためHardになります。不明値、重複値、想定外のmultipartフィールドは拒否されます。選択値は固定のPython CLI引数としてGo runner経由で渡されます。CLI側も独立してHardを既定値とし、同じ値集合を検証します。これは追加フィールドであり、成功レスポンス形式、Feature Timeline v1、`kickEvents`、`kickEventStrengths`は変更されません。
 
-The Editor's new-analysis default is Middle. The selector is placed in section “4 · エフェクト”, below Common Color and above the Effect list. Its state belongs to the Editor, not any Effect. Effect add/delete/type changes preserve the selection. Changing it alone makes no request and does not mutate an existing Timeline; the value is sent only on the next Audio Analyze request. Previously analyzed or loaded Projects are not reanalyzed.
+Editorで新規解析を行う際の既定値はMiddleです。セレクターは「4 · エフェクト」セクション内のCommon Colorの下、Effect一覧の上に配置されています。状態は個々のEffectではなくEditorに属します。Effectの追加・削除・種類変更をしても選択値は維持されます。選択値を変更しただけではリクエストは送信されず、既存Timelineも変更されません。値は次回のAudio Analyzeリクエストでのみ送られます。既に解析済み、または読み込み済みのProjectは再解析されません。
 
-## Demo4 comparison
+## Demo4比較
 
-Ran each mode on the existing `demo-assets/stems/demo4-kick-evaluation/drums.wav` (189.960s, 44.1kHz stereo PCM16), without modifying the source, candidate fixture or saved evaluation data. The supplied labels remain unverified, so these are detector output counts, not accuracy results.
+既存の `demo-assets/stems/demo4-kick-evaluation/drums.wav`（189.960秒、44.1kHz、ステレオPCM16）に各モードを適用しました。ソース、候補フィクスチャ、保存済み評価データは変更していません。提供されたラベルは未検証のため、以下は検出数であり精度評価ではありません。
 
-| Mode | Events / paired strengths | Strength min | Median | p90 | Max |
+| モード | イベント数 / 対応するStrength数 | Strength最小 | 中央値 | p90 | 最大 |
 |---|---:|---:|---:|---:|---:|
 | Off | 994 | 0.000094 | 0.223223 | 0.689112 | 1.000000 |
 | Soft | 647 | 0.018141 | 0.369472 | 0.748848 | 1.000000 |
 | Middle | 395 | 0.028778 | 0.351253 | 0.801916 | 1.000000 |
 | Hard | 138 | 0.043280 | 0.099156 | 0.389254 | 1.000000 |
 
-Counts are monotonic in the intended strictness order. Onset identities are not strict subsets between modes because the common 120ms merge can select a different local maximum when one mode admits additional peaks. Hard event times match all 138 events in the saved baseline Timeline exactly. Recomputing from the quantized PCM16 stem yields a maximum absolute Strength delta of `0.00003147` versus the earlier Timeline generated from pre-quantized Demucs floats; this is the previously observed PCM quantization difference, not a gate-condition change. For identical input samples, omitted mode and explicit Hard produce identical event/strength tuples.
+件数は意図した厳しさの順に単調です。共通の120ms統合処理では、一方のモードが追加ピークを許容すると異なる局所最大値が選ばれることがあるため、各モードのオンセットは厳密な部分集合にはなりません。Hardのイベント時刻は保存済みベースラインTimelineの138件すべてと完全一致します。量子化済みPCM16ステムから再計算した場合、以前のTimeline（量子化前のDemucs浮動小数点値から生成）とのStrength最大絶対差は `0.00003147` です。これは既知のPCM量子化差であり、ゲート条件の変更によるものではありません。同一入力サンプルでは、モード省略時と明示的なHardはイベント・Strengthの組が一致します。
 
-No Precision, Recall, F1 or claim of weak-Kick improvement is made because human-confirmed labels are unavailable.
+人が確認した正解ラベルがないため、Precision、Recall、F1、または弱いKickの改善については主張しません。
 
-## Tests and verification
+## テストと検証
 
-- Python Island suite: **65 passed**.
-- Python `mypy --strict src`: passed.
-- Ruff on Python source and tests (`--ignore E501`, existing project convention): passed.
-- Frontend: **161 tests passed**, typecheck, lint and production build passed.
-- Go `internal/audioanalysis` tests: passed; covers omitted-Hard default, all four values, invalid value rejection, propagation to runner and CLI arguments.
-- `go vet ./...`: passed.
-- `git diff --check`: passed.
+- Python Islandテスト: **65件成功**。
+- Python `mypy --strict src`: 成功。
+- PythonソースとテストのRuff（既存プロジェクト規約により `--ignore E501`）: 成功。
+- Frontend: **161件成功**、typecheck、lint、本番build成功。
+- Go `internal/audioanalysis`テスト: 成功。省略時のHard既定値、4値すべて、不正値拒否、runnerへの伝達、CLI引数を検証。
+- `go vet ./...`: 成功。
+- `git diff --check`: 成功。
 
-Frontend tests verify Middle default, selector placement, no reanalysis on setting change, state preservation through Effect type/add/delete, and selected mode in the Analyze multipart request. Python tests verify Hard default compatibility, threshold ordering, mode propagation, silence under Off, local maximum/merge output invariants and aligned event strengths.
+FrontendテストではMiddle既定値、セレクターの配置、設定変更時に再解析しないこと、Effectの種類変更・追加・削除後も状態が維持されること、選択モードがAnalyzeのmultipartリクエストに含まれることを検証します。PythonテストではHard既定値との互換性、閾値の順序、モード伝達、Offでの無音処理、局所最大値・統合結果の不変条件、イベントStrengthの整列を検証します。
 
-## Changed files
+## 変更ファイル
 
-- `python-island/src/python_island/features.py`, `pipeline.py`, `cli.py` — shared gate configuration and mode plumbing.
-- `python-island/tests/test_features.py`, `test_cli.py` — detector and CLI regression tests.
-- `api/internal/audioanalysis/handler.go`, `handler_test.go` — optional multipart field validation and Python argv propagation.
-- `frontend/src/audio-analysis.ts`, `VisualEditor.tsx` — request field, Middle default and relocated global control.
-- `frontend/src/audio-analysis.test.ts`, `visual-editor.test.tsx` — payload and UI state/placement tests.
-- `docs/API_CONTRACTS.md`, `docs/ARCHITECTURE.md`, `docs/TEST_STRATEGY.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `CURRENT_TASK.md`, `python-island/README.md` — contract, design and status documentation.
+- `python-island/src/python_island/features.py`、`pipeline.py`、`cli.py` — 共通ゲート設定とモード伝達。
+- `python-island/tests/test_features.py`、`test_cli.py` — 検出器とCLIの回帰テスト。
+- `api/internal/audioanalysis/handler.go`、`handler_test.go` — 任意multipartフィールドの検証とPython argvへの伝達。
+- `frontend/src/audio-analysis.ts`、`VisualEditor.tsx` — リクエスト項目、Middle既定値、全体設定コントロールの移設。
+- `frontend/src/audio-analysis.test.ts`、`visual-editor.test.tsx` — ペイロードとUI状態・配置のテスト。
+- `docs/API_CONTRACTS.md`、`docs/ARCHITECTURE.md`、`docs/TEST_STRATEGY.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md`、`CURRENT_TASK.md`、`python-island/README.md` — 契約、設計、状態の文書。
 
-No Blueprint, Timeline, Project, Cloud, Renderer, WebM, Auth, DB, Migration, Demucs model or saved analysis data was changed.
+Blueprint、Timeline、Project、Cloud、Renderer、WebM、Auth、DB、Migration、Demucsモデル、保存済み解析データは変更していません。
 
-## Remaining verification
+## 残っている検証
 
-The UI has not been accepted in a real Windows Chrome session. The demo4 comparison has no human truth labels; effectiveness for weak acoustic Kick and false-positive changes therefore remains undetermined. Existing data is not automatically reanalyzed when the selected mode changes.
+実際のWindows Chrome環境でUIを受け入れ確認していません。demo4比較には人手で確認した正解ラベルがないため、弱い音響Kickへの有効性や誤検出の変化は未確定です。選択モードを変更しても既存データは自動再解析されません。

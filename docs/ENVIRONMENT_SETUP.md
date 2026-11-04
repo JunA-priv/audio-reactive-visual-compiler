@@ -1,5 +1,7 @@
 # 開発環境構築マニュアル
 
+現在のDevelopment/Test/Productionプロファイル切替、共通起動・停止・状態確認は[ENVIRONMENT_GUIDE.md](ENVIRONMENT_GUIDE.md)を参照する。本書の後半にある個別の初期構築記録・手動起動例は履歴/補足であり、profile launcherの安全チェックを迂回する場合がある。
+
 対象：AI Audio-Reactive Visual Compiler
 作成・情報確認日：2026年10月31日
 対象環境：Windows 11 / WSL2 Ubuntu / bashまたはzsh
@@ -325,20 +327,25 @@ curl -i http://127.0.0.1:8080/healthz
 
 期待値はHTTP 200と`{"status":"ok"}`。APIは`127.0.0.1:8080`で待ち受ける。Fixture modeはOpenAIへ接続せず、APIキーも不要。公開デモは`/demo`で固定合成WAV・既存Timeline/Blueprintを再生し、Go API・Auth・Cloud・AI providerへ通信しない。`/app`はSupabase session確認後にEditorを表示する。
 
-#### `/app`のローカル音源解析（任意）
+#### `/app`のAudio Analyze（任意）
 
-Step 7jの解析APIは既定で無効。ローカルSupabase Authが起動し、Python Islandの既存`.venv`とDemucs重みが利用可能な場合だけ、`api/.env`に以下の設定を加える。relative pathは`api/run-local.sh`が`api/`へ移動した後に解決される。
+Audio Analyze routeは既定で無効。Step 7k-42で専用quota制御を追加したが、新しいMigration 019は未適用であり、この工程ではDB・role・credentialを変更していない。routeを有効にするには、Migration 019適用後に専用`arvc_audio_analysis` roleへLOGIN credentialを別途安全に設定し、server-only `SUPABASE_AUDIO_ANALYSIS_DSN`をignored `api/.env`へ用意する必要がある。global `audio_analysis_control.enabled`とquota設定、対象JWT subjectの明示的entitlement/quotaも必要で、初期状態はdefault-deny。quota件数は今回固定していない。Hosted DSNは`sslmode=verify-full`必須。これらを確認・適用する作業は今回実施しない。
+
+CPU Python Island/SCNetとffprobeが利用可能な場合、`api/.env`は次の形になる。relative pathは`api/run-local.sh`が`api/`へ移動した後に解決される。
 
 ```dotenv
-AUDIO_ANALYSIS_ENABLED=true
+AUDIO_ANALYSIS_ENABLED=false
+SUPABASE_AUDIO_ANALYSIS_DSN=
 PYTHON_ISLAND_EXECUTABLE=../python-island/.venv/bin/python-island
 PYTHON_ISLAND_DIRECTORY=../python-island
 FFPROBE_EXECUTABLE=ffprobe
 ```
 
-その後`bash ./run-local.sh`で起動する。`AUDIO_ANALYSIS_ENABLED=true`をコマンド環境変数で渡す場合もrun-local.shはこの明示overrideを維持する。解析routeはlocal SupabaseのJWTを必須とする。ブラウザーは最大60秒のPCM16 WAV選択clipだけを`POST /api/v1/audio/analyze`へ送る。上限はmultipart request全体16 MiB、global同時実行1件、600秒。解析処理はローカルCPUを使い、Stemや音源を外部AIへ送らない。完了後、Editorへ入るのはcrop clipと0ms起点のTimelineであり、Project保存/WebMも同じclipを使う。`/demo`はこのAPIを呼ばない。
+上記はsafe defaultであり、quota DBのmigration・role credential・control/entitlement設定を別途完了するまでは`AUDIO_ANALYSIS_ENABLED=false`のままにする。準備後にだけignored `api/.env`へ専用DSNを設定し、明示的にrouteを有効化する。
 
-解析を有効にしない場合は`AUDIO_ANALYSIS_ENABLED=false`のままにする。Hosted公開・外部bindにこのローカルCPU endpointを使わない。実音源の投入前に利用権とDemucs重みの利用条件を確認する。
+有効なローカル検証では、認証済みJWT、DB entitlement/quota、atomic reservationが必須。ブラウザーは最大60秒のPCM16 WAV選択clipだけを`POST /api/v1/audio/analyze`へ送る。上限はmultipart request全体16 MiB、DB global同時実行制限と既存process内同時実行1件、600秒。解析処理はローカルCPUを使い、Stemや音源を外部AIへ送らない。完了後、Editorへ入るのはcrop clipと0ms起点のTimelineであり、Project保存/WebMも同じclipを使う。`/demo`はこのAPIを呼ばない。
+
+解析を有効にしない場合は`AUDIO_ANALYSIS_ENABLED=false`のままにする。migration・role・DB設定が揃っていない状態ではrouteを有効にしない。Hosted実行は別工程のintegration/運用確認後に限る。実音源の投入前に利用権とSCNet重みの利用条件を確認する。
 
 #### AI生成APIのローカルFixture検証
 
@@ -417,16 +424,16 @@ Go APIの5 Project endpointは[API契約](API_CONTRACTS.md#step-7b-ローカルp
 
 `api/run-local.sh`は作業ツリー上のmode 755。現時点ではAPI一式が未追跡のため`git ls-files -s`のindex entryはなく、Gitへ追加するときは実行可能fileとして100755で記録される。Fixture起動ではOpenAI実API requestを発生させない。OpenAI modeへの変更は明示許可がある別作業に限る。
 
-## 9. Python Island・uv・Demucs・PyTorch CPU・FFmpeg
+## 9. Python Island・uv・SCNet/Demucs・PyTorch CPU・FFmpeg
 
-FACT（2026-10-31）：WSL Ubuntu 24.04.3 / x86_64、uv 0.8.12、Python 3.14.10、PyTorch 2.14.1+cpu、Demucs 4.1.0、NumPy 2.3.4を採用。Python standaloneはAstral python-build-standalone release `20261026`からSHA256検証して`python-island/.python`へ展開し、`uv.lock`で全Python依存を固定する。開発用固定版はpytest 9.0.3、Ruff 0.14.4、mypy 1.18.2、pip-audit 2.9.0。Demucs 4.1.0を選択した理由は旧版のTorch/torchaudio制約を避け、現在のPython/TorchでCPU推論できることを実測したため。torchaudioと別の音響抽出依存は不要。
+FACT（Step 7k-36）：WSL Ubuntu 24.04.3 / x86_64、uv 0.8.12、Python 3.14.10、PyTorch 2.14.1+cpu、NumPy 2.3.4、tqdm 4.70.1を使用。Python standaloneはAstral python-build-standalone release `20261026`からSHA256検証して`python-island/.python`へ展開し、`uv.lock`で依存を固定する。開発用固定版はpytest 9.0.3、Ruff 0.14.4、mypy 1.18.2、pip-audit 2.9.0。Demucs 4.1.0はdevelopment optional extraのみ。SCNet standard checkpointはSHA-256とsizeを検証済みのものを手動cacheへ配置し、依存や配布物へ含めない。
 
 ```bash
 cd python-island
 uv --version  # 0.8.12
 ./scripts/setup.sh
 uv run --locked python --version
-uv run --locked python -c 'import torch, demucs, numpy; print(torch.__version__, demucs.__version__, numpy.__version__, torch.cuda.is_available())'
+uv run --locked python -c 'import torch, numpy; print(torch.__version__, numpy.__version__, torch.cuda.is_available())'
 uv run --locked ruff check src tests
 uv run --locked mypy
 uv run --locked pytest -m 'not integration'
@@ -437,9 +444,9 @@ uv run --locked pip-audit --cache-dir .pip-audit-cache
 
 FFmpeg/ffprobeは外部実行ファイルでありPython lockには含まれない。今回の測定環境はUbuntu package `7:6.1.1-3ubuntu5`。Ubuntu 24.04向けsecurity noticesの更新版はUbuntu Pro ESM提供と記載され、この環境には更新候補がない。よってこのFFmpeg版を安全な任意メディア処理依存として承認していない。信頼できない入力/本番用途の前に、保守された修正版を選定し、版・取得元・署名を検証して固定する必要がある。system FFmpegを無断で置換・installしない。
 
-CLIは音源を外部送信せず、ローカルMP3/WAVを検査し、`uv run --locked python-island /absolute/path/input.wav --output-dir ./output --threads 4`でTimeline、Summary、metadataを出力する。既定上限は4分、512MiB。実測4分合成音源はDemucs分離119.223秒、特徴量2.000秒、total122.798秒、peak RSS 1,698.7MiB（16 logical CPU中4 thread）。詳細と制限は[Python Island報告](reports/2026-10-31-python-island.md)。
+標準CLIはSCNet standardをCPU実行し、音源を外部送信せず、ローカルMP3/WAVを検査して`uv run --locked python-island /absolute/path/input.wav --output-dir ./output --threads 4`でTimeline、Summary、metadataを出力する。既定上限は4分、512MiB。SCNetのdemo4 60秒実測はwarm 52.18秒、Peak RSS中央値2,149MiB（2 threads）。Demucs比較用には`uv sync --locked --extra dev --extra demucs-dev`の後、手動CLIで`--engine htdemucs`を指定する。DemucsはAPI標準経路で選択できず、公開依存にも含めない。
 
-モデルcheckpointは公式Demucs配布元`https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th`、84,141,911 bytes、SHA256 `8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4`。今回ファイルを新規downloadせず、hash検証済み既存cacheから読み込んだ。Demucs maintainer説明ではweightはMIT license対象外でscientific purposesのみ。商用/公開用途は未許諾として扱う。
+SCNet standard checkpointは42,434,545 bytes、SHA-256 `f8aff3bc8dd816aad392800d9d69519add719a2fbd22550af6f8cb2138d25ff5`で検証する。Torch Hub cacheの`checkpoints/scnet-standard-f8aff3bc.th`へ手動配置し、ファイルがない/不一致の場合CLIはfail-closedで停止する。コードは公式SCNet commit `5d95bf96b19c3eede63248d171efeca8e3abb948`の推論部分をMIT条件で同梱し、checkpointはGit/packageへ含めない。Demucs重みは開発用cacheのみで、公開依存・配布物へ含めない。公開版でのSCNet採用・権利判断はユーザー決定事項として本Stepでは解決済み扱い。
 
 公式：[Python 3.14.10](https://www.python.org/downloads/release/python-31410/)、[Astral standalone release](https://github.com/astral-sh/python-build-standalone/releases/tag/20261026)、[uv](https://docs.astral.sh/uv/)、[PyTorch](https://pytorch.org/get-started/previous-versions/)、[Demucs](https://github.com/adefossez/demucs)、[Demucs weight license explanation](https://github.com/facebookresearch/demucs/issues/327)、[Ubuntu FFmpeg advisory](https://ubuntu.com/security/notices/USN-8671-1)。
 

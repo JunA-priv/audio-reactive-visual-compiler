@@ -18,6 +18,7 @@ def test_cli_success_writes_frontend_compatible_contract(tmp_path, monkeypatch, 
     assert cli.main([str(source), "--output-dir", str(output)]) == 0
     assert json.loads(capsys.readouterr().out)["outputDir"] == str(output)
     assert captured["kick_gate_mode"] == "hard"
+    assert captured["engine"] == "scnet_standard"
 
 
 def test_cli_accepts_explicit_kick_gate_mode(tmp_path, monkeypatch, capsys):
@@ -34,6 +35,23 @@ def test_cli_accepts_explicit_kick_gate_mode(tmp_path, monkeypatch, capsys):
     assert captured["kick_gate_mode"] == "middle"
 
 
+def test_cli_allows_development_demucs_engine(tmp_path, monkeypatch, capsys):
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        cli,
+        "run_analysis",
+        lambda *_args, **kwargs: (captured.update(kwargs) or {"outputDir": "out"}),
+    )
+    assert cli.main(["input.wav", "--output-dir", "out", "--engine", "htdemucs"]) == 0
+    capsys.readouterr()
+    assert captured["engine"] == "htdemucs"
+
+
+def test_cli_hides_demucs_engine_without_development_dependency(monkeypatch):
+    monkeypatch.setattr(cli.importlib.util, "find_spec", lambda _name: None)
+    assert cli.build_parser()._option_string_actions["--engine"].choices == ["scnet_standard"]
+
+
 def test_run_analysis_keeps_frontend_required_fields_and_refuses_overwrite(
     tmp_path, monkeypatch, write_wav
 ):
@@ -45,8 +63,10 @@ def test_run_analysis_keeps_frontend_required_fields_and_refuses_overwrite(
     audio = np.ones((44_100, 2), dtype=np.float32) * 0.1
     stems = {name: audio.copy() for name in ("drums", "bass", "vocals", "other")}
     monkeypatch.setattr(pipeline, "separate_stems", lambda *_args, **_kwargs: stems)
-    monkeypatch.setattr(pipeline, "checkpoint_path", lambda: tmp_path / "model.th")
-    monkeypatch.setattr(pipeline, "checkpoint_metadata", lambda _path: {"model": "htdemucs"})
+    monkeypatch.setattr(pipeline, "checkpoint_path", lambda _engine: tmp_path / "model.th")
+    monkeypatch.setattr(
+        pipeline, "checkpoint_metadata", lambda _path, _engine: {"model": "scnet_standard"}
+    )
     model = tmp_path / "model.th"
     model.write_bytes(b"model")
     result = pipeline.run_analysis(
@@ -59,7 +79,7 @@ def test_run_analysis_keeps_frontend_required_fields_and_refuses_overwrite(
     assert all(isinstance(event, int) for event in timeline["kickEvents"])
     assert "schemaVersion" in timeline and "analysisVersion" in timeline
     summary = json.loads((output / "music-summary.json").read_text())
-    assert summary["analysis"]["model"] == "htdemucs"
+    assert summary["analysis"]["model"] == "scnet_standard"
     metadata_path = output / "analysis-metadata.json"
     metadata = json.loads(metadata_path.read_text())
     assert metadata["outputBytes"]["analysis-metadata.json"] == metadata_path.stat().st_size

@@ -1,3 +1,4 @@
+import { apiUrl } from './api-connection';
 import type { AuthSession } from './auth-client';
 import type { CloudAsset, CloudDocumentEnvelopeV1, ProjectDocumentV1 } from './cloud-project';
 
@@ -9,7 +10,7 @@ export type AssetMetadata = { id: string; projectId: string; kind: CloudAsset['k
 const pendingReservations = new Map<string, AssetMetadata>();
 
 async function call<T>(session: AuthSession, path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`/api/v1${path}`, {
+  const response = await fetch(apiUrl(`/api/v1${path}`), {
     ...init,
     headers: { Authorization: `Bearer ${session.accessToken}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
   });
@@ -64,7 +65,7 @@ export async function uploadAsset(session: AuthSession, projectId: string, file:
   if (reservation.projectId !== projectId || reservation.kind !== kind || reservation.status !== 'pending_upload' || reservation.contentType !== contentType || reservation.byteSize !== file.size || reservation.sha256 !== sha256 || !reservation.id) {
     throw new Error('素材予約の応答が要求内容と一致しません。');
   }
-  const completePath = `/api/v1/projects/${projectId}/assets/${reservation.id}/complete`;
+  const completePath = apiUrl(`/api/v1/projects/${projectId}/assets/${reservation.id}/complete`);
   const completion = await fetch(completePath, { method: 'POST', headers: { Authorization: `Bearer ${session.accessToken}` } });
   if (completion.ok) {
     const ready = await completion.json() as AssetMetadata;
@@ -75,7 +76,7 @@ export async function uploadAsset(session: AuthSession, projectId: string, file:
   if (completion.status === 401) { window.dispatchEvent(new Event('arvc-auth-expired')); throw new Error('ログインの有効期限が切れました。再度ログインしてください。'); }
   if (completion.status !== 422 && completion.status !== 409) throw new Error(`素材の完了確認に失敗しました（HTTP ${completion.status}）。`);
   // A reservation with no stored object is expected to fail completion; upload the bytes once.
-  const upload = await fetch(`/api/v1/projects/${projectId}/assets/${reservation.id}/content`, {
+  const upload = await fetch(apiUrl(`/api/v1/projects/${projectId}/assets/${reservation.id}/content`), {
     method: 'POST', headers: { Authorization: `Bearer ${session.accessToken}`, 'Content-Type': contentType }, body: file,
   });
   if (!upload.ok) {
@@ -97,7 +98,7 @@ function assertReadyAsset(value: AssetMetadata, reservation: AssetMetadata, sha2
 export async function loadAsset(session: AuthSession, projectId: string, assetId: string): Promise<CloudAsset> {
   const metadata = await call<AssetMetadata>(session, `/projects/${projectId}/assets/${assetId}`);
   if (metadata.projectId !== projectId || metadata.id !== assetId || metadata.status !== 'ready') throw new Error('素材metadataがProjectまたは状態と一致しません。');
-  const response = await fetch(`/api/v1/projects/${projectId}/assets/${assetId}/content`, { headers: { Authorization: `Bearer ${session.accessToken}` } });
+  const response = await fetch(apiUrl(`/api/v1/projects/${projectId}/assets/${assetId}/content`), { headers: { Authorization: `Bearer ${session.accessToken}` } });
   if (!response.ok) throw new Error(`素材を読み込めません（HTTP ${response.status}）。`);
   const blob = await response.blob();
   if (blob.size !== metadata.byteSize) throw new Error('取得した素材のサイズが一致しません。');

@@ -8,6 +8,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,9 +31,12 @@ type Config struct {
 	Projects                    *projects.Handler
 	GenerateAuth                func(echo.HandlerFunc) echo.HandlerFunc
 	Budget                      aibudget.Store
+	CORSOrigins                 []string
 }
 
 const DefaultGenerationTimeout = 120 * time.Second
+
+var hostedOriginHost = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
 type API struct{ cfg Config }
 type errorBody struct {
@@ -81,7 +87,7 @@ func NewServer(cfg Config) *echo.Echo {
 		}
 		_ = respondError(c, status, code, message)
 	}
-	e.Use(localCORS)
+	e.Use(cors(cfg.CORSOrigins))
 	e.GET("/healthz", func(c *echo.Context) error { return c.JSON(http.StatusOK, map[string]string{"status": "ok"}) })
 	generateAuth := cfg.GenerateAuth
 	if generateAuth == nil {
@@ -98,19 +104,54 @@ func NewServer(cfg Config) *echo.Echo {
 	return e
 }
 
-func localCORS(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		origin := c.Request().Header.Get("Origin")
-		if origin == "http://127.0.0.1:5173" || origin == "http://localhost:5173" {
-			c.Response().Header().Set("Access-Control-Allow-Origin", origin)
-			c.Response().Header().Add("Vary", "Origin")
-			c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
+func localOrigin(origin string) bool {
+	return origin == "http://127.0.0.1:5173" || origin == "http://localhost:5173"
+}
+
+// ValidateHostedOrigin accepts a bare HTTPS origin only; matching is always exact.
+func ValidateHostedOrigin(origin string) error {
+	u, err := url.Parse(origin)
+	if err != nil || u == nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.Host != strings.ToLower(u.Host) || !hostedOriginHost.MatchString(u.Hostname()) {
+		return errors.New("hosted CORS origin must be an exact HTTPS origin")
+	}
+	if port := u.Port(); port != "" {
+		value, parseErr := strconv.Atoi(port)
+		if parseErr != nil || value < 1 || value > 65535 || value == 443 || strings.HasSuffix(u.Host, ":") {
+			return errors.New("hosted CORS origin port is invalid")
 		}
-		if c.Request().Method == http.MethodOptions {
-			return c.NoContent(http.StatusNoContent)
+	}
+	return nil
+}
+
+func cors(hosted []string) echo.MiddlewareFunc {
+	allowed := map[string]bool{"http://127.0.0.1:5173": true, "http://localhost:5173": true}
+	for _, origin := range hosted {
+		allowed[origin] = true
+	}
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			origins := c.Request().Header.Values("Origin")
+			if len(origins) > 1 {
+				return respondError(c, http.StatusForbidden, "cors_origin_denied", "origin is not allowed")
+			}
+			origin := ""
+			if len(origins) == 1 {
+				origin = origins[0]
+			}
+			if origin != "" && !allowed[origin] {
+				return respondError(c, http.StatusForbidden, "cors_origin_denied", "origin is not allowed")
+			}
+			if origin != "" {
+				c.Response().Header().Set("Access-Control-Allow-Origin", origin)
+				c.Response().Header().Add("Vary", "Origin")
+				c.Response().Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
+			}
+			if c.Request().Method == http.MethodOptions {
+				return c.NoContent(http.StatusNoContent)
+			}
+			return next(c)
 		}
-		return next(c)
 	}
 }
 

@@ -13,9 +13,9 @@
 | Go | Go 1.27.3（`api/go.mod`はGo 1.27.0、toolchain 1.27.3） |
 | Python Island | Python 3.14.10、uv 0.8.12。依存は`python-island/uv.lock`で固定 |
 | 音声処理 | FFmpeg / ffprobe。既存環境資料の実測版は6.1.1-3ubuntu5 |
-| 音声解析モデル | CPU版PyTorch 2.14.1、Demucs 4.1.0、および事前に検証済みの`htdemucs` checkpoint |
+| 音声解析モデル | CPU版PyTorch 2.14.1、SCNet standard、および手動配置した検証済みcheckpoint |
 
-通常のFixture APIとFrontend表示だけならPython Island・FFmpeg・Demucsモデルは不要です。音声解析を使う場合に必要です。ローカル音声解析はローカルCPU上で動きます。解析対象の音源を外部AIへ送信しません。
+通常のFixture APIとFrontend表示だけならPython Island・FFmpeg・SCNet checkpointは不要です。音声解析を使う場合は必要です。Demucsは開発比較用で、標準依存・公開配布物に含めません。ローカル音声解析はローカルCPU上で動き、解析対象の音源を外部AIへ送信しません。
 
 Node/npmの版は[frontend/package.json](frontend/package.json)、Goは[api/go.mod](api/go.mod)、Python/FFmpegの詳細は[開発環境構築マニュアル](docs/ENVIRONMENT_SETUP.md)を参照してください。
 
@@ -87,7 +87,7 @@ cd /home/raric/work/myapp/audio-reactive-visual-compiler/frontend
 npm run dev
 ```
 
-`npm run dev`はViteを`127.0.0.1`で起動します。標準URLは[http://127.0.0.1:5173/](http://127.0.0.1:5173/)です。起動ログに`Local: http://127.0.0.1:5173/`が出ることを確認し、WindowsブラウザでURLを開きます。
+Development profileのViteは`ARVC_VITE_HOST`で待受addressを選べます（既定`0.0.0.0`）。WSL2内で`hostname -I`を実行し、Windowsブラウザから`http://<WSL2-IP>:5173/`を開きます。Go APIは引き続き`127.0.0.1:8080`で待ち受けます。
 
 [frontend/vite.config.ts](frontend/vite.config.ts)の`/api` proxy先は`http://127.0.0.1:8080`です。ブラウザからAPIへ直接ではなく、Vite経由で接続します。
 
@@ -102,14 +102,14 @@ cd /home/raric/work/myapp/audio-reactive-visual-compiler/python-island
 ./scripts/setup.sh
 ```
 
-この手順は固定版Python runtimeとロック済み依存を用意します。別途、FFmpeg/ffprobeと検証済み`htdemucs`モデルcheckpoint cacheが必要です。モデルcacheがない場合、CLIはモデルを暗黙にダウンロードせず失敗します。Python単体CLIの確認手順は[python-island/README.md](python-island/README.md)にあります。手動でCLIを起動するのは環境確認・診断時だけで、APIと並行した常駐起動は不要です。
+この手順は固定版Python runtimeとロック済み依存を用意します。音声解析にはFFmpeg/ffprobeと、SHA-256/sizeが固定されたSCNet standard checkpointをTorch Hub cacheへ手動配置してください。checkpointがない場合、CLIはモデルを暗黙にダウンロードせず失敗します。Demucs比較を行う開発者だけ`uv sync --locked --extra dev --extra demucs-dev`でoptional dependencyを導入し、単体CLIに`--engine htdemucs`を指定します。Python単体CLIの手順は[python-island/README.md](python-island/README.md)を参照してください。
 
 ## 6. 起動順序
 
 1. 必要に応じてローカルSupabase Authを起動します（音声解析Routeを有効化する場合）。
 2. ターミナル1でGo APIを起動します。
 3. ターミナル2でFrontendを起動します。
-4. Windowsブラウザで`http://127.0.0.1:5173/`を開きます。
+4. WSL2 IPを使う場合、Windowsブラウザで`http://<WSL2-IP>:5173/`を開きます。
 
 各サービスは別々のターミナルで起動し、利用中はターミナルを閉じないでください。Vite Proxyの先にGo APIが必要なため、Go APIを先に起動します。
 
@@ -118,8 +118,8 @@ cd /home/raric/work/myapp/audio-reactive-visual-compiler/python-island
 - Goの起動ログで`addr=127.0.0.1:8080`を確認します。
 - 音声解析を使う場合は`audio_analysis_enabled=true`を確認します。Routeを有効にしない通常起動ではfalseが正常です。
 - `curl -i http://127.0.0.1:8080/healthz`がHTTP 200を返すことを確認します。
-- Viteの起動ログで`127.0.0.1:5173`を確認します。
-- Windowsブラウザで`http://127.0.0.1:5173/`が表示されることを確認します。
+- Viteの起動ログでbind先と5173を確認します。
+- Windowsブラウザで`http://<WSL2-IP>:5173/`が表示されることを確認します。
 - 音声解析を行う場合は、認証済みEditorで音源範囲を選択して解析し、Timelineが読み込まれることを確認します。`/demo`は固定デモであり、この解析Routeを呼びません。
 
 音声解析Routeが無効だと解析POSTは404になります。ブラウザやVite側では解析失敗、接続リセットなどとして見える場合があります。まずGoの起動ログの`audio_analysis_enabled`を確認してください。
@@ -156,7 +156,7 @@ localhost転送の診断・暫定対応としてのみ、Viteを全interfaceで�
 npm run dev -- --host 0.0.0.0
 ```
 
-表示されたWSL IPを使い、Windowsブラウザから`http://<WSLのIP>:5173/`へアクセスします。`0.0.0.0`は待受範囲を広げる設定なので、ローカル環境の診断・暫定対応に限ってください。通常設定は`127.0.0.1`です。
+表示されたWSL IPを使い、Windowsブラウザから`http://<WSLのIP>:5173/`へアクセスします。Development launcherは`ARVC_VITE_HOST=0.0.0.0`で同じ待受を行います。全interface待受はWSL2仮想ネットワーク上の他端末からも接続可能になる場合があります。LAN公開を意図した設定ではないため、信頼できるローカル開発環境に限り、必要なら`config/environments/development.env`で`ARVC_VITE_HOST=127.0.0.1`に戻してください。
 
 ### 音声解析ができない
 
@@ -194,6 +194,6 @@ ss -ltnp '( sport = :5173 or sport = :8080 )'
 
 - [ ] Go API起動ログで`addr=127.0.0.1:8080`を確認
 - [ ] 音声解析を使う場合、`AUDIO_ANALYSIS_ENABLED=true`と`audio_analysis_enabled=true`を確認
-- [ ] Viteを起動し、`127.0.0.1:5173`の起動ログを確認
-- [ ] ブラウザで`http://127.0.0.1:5173/`を表示
+- [ ] Development profileでViteを起動し、bind先と5173の起動ログを確認
+- [ ] Windowsブラウザで`http://<WSL2-IP>:5173/`を表示
 - [ ] 音声解析を使う場合、ログイン後に音声解析を実行しTimelineが返ることを確認

@@ -129,10 +129,12 @@ export const newEditorBlueprint: EditorBlueprint = {
   effects: [
     { id: 'effect-spectrum-bars-default', kind: 'spectrum-bars', regionId: 'region-stage', color: '#91e8ff', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'always', audioReactive: true, barWidth: 0.72, spacing: 0.12, amplitudeScale: 1.35, glowIntensity: 1.15, segmented: true, segmentsPerBar: 12, attackMs: 35, releaseMs: 180 },
     { id: 'effect-ink-diffusion-default', kind: 'ink-diffusion', regionId: 'region-stage', color: '#8b5cf6', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'always', audioReactive: true, diffusionSpeed: 0.25, flowStrength: 0.4, turbulence: 0.3, inkDensity: 0.65, cloudScale: 0.5, responseTime: 3 },
+    { id: 'effect-shockwave-default', kind: 'shockwave', regionId: 'region-stage', color: '#ff48d6', colorMode: 'global-gradient', opacity: 1, visibilityMode: 'triggered', audioReactive: true, centerX: 0.5, centerY: 0.5, maxRadius: 0.48, lifetimeMs: 1200, lineWidth: 0.026, glowIntensity: 1.7, opacityBoost: 1.6 },
   ],
   bindings: [
     { id: 'binding-effect-spectrum-bars-default', effectId: 'effect-spectrum-bars-default', source: 'music.energy', strength: 0.9, threshold: 0.1, attackMs: 60, releaseMs: 260 },
     { id: 'binding-effect-ink-diffusion-default', effectId: 'effect-ink-diffusion-default', source: 'music.energy', strength: 0.9, threshold: 0.1, attackMs: 60, releaseMs: 260 },
+    { id: 'binding-effect-shockwave-default', effectId: 'effect-shockwave-default', source: 'kick.events', strength: 1, threshold: 0, attackMs: 0, releaseMs: 260 },
   ],
 };
 

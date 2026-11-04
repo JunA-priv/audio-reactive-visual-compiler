@@ -1,0 +1,41 @@
+name: Production Release Readiness (No Apply)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_readiness_check:
+        description: Run the production preflight after the protected Environment approval.
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  production-preflight:
+    if: ${{ inputs.confirm_readiness_check }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Confirm protected main target
+        env:
+          EXPECTED_REF: ${{ vars.ARVC_PRODUCTION_SUPABASE_PROJECT_REF }}
+          CONFIRMED_REF: ${{ vars.ARVC_EXPECTED_SUPABASE_PROJECT_REF }}
+          BACKUP_READINESS_RECORD: ${{ vars.ARVC_PRODUCTION_BACKUP_READINESS_RECORD }}
+          EXPECTED_RELEASE_BRANCH: ${{ vars.ARVC_PRODUCTION_RELEASE_BRANCH }}
+        run: |
+          test "$GITHUB_REF_NAME" = "main"
+          test -n "$EXPECTED_REF"
+          test "$EXPECTED_REF" = "$CONFIRMED_REF"
+          test -n "$BACKUP_READINESS_RECORD"
+          test "$EXPECTED_RELEASE_BRANCH" = "main"
+          echo "Target identity and backup readiness metadata match. No Supabase/GCP connection or mutation is performed."
+      - name: Keep production apply disabled
+        run: |
+          echo "Production migration apply and Cloud Run deployment are intentionally not implemented in this workflow."
+          echo "Create a separately approved release change after Hosted backup/restore and canary procedures are validated."

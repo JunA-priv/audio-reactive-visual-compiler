@@ -1,26 +1,26 @@
-# Step 7k-23 — Acoustic Drum Kick Evaluation Dataset
+# Step 7k-23 — アコースティックドラムKick評価データセット
 
-**Status: partial.** The source was decoded and separated with the existing local Demucs pipeline. Stem integrity, detector-derived candidate timestamps, gate diagnostics, and a candidate review file are ready. Audio could not be auditioned in this environment, and source licensing is undocumented. All Kick candidates remain `unverified`; no ground-truth manifest or Precision/Recall/F1 result was produced.
+**状態: 部分完了。** 既存のローカルDemucsパイプラインでソースをデコードし、音源分離しました。ステムの整合性、検出器由来の候補タイムスタンプ、ゲート診断、候補レビュー用ファイルを用意しました。この環境では音声を試聴できず、ソースのライセンスも未記録です。Kick候補はすべて`unverified`のままで、正解データのマニフェストやPrecision/Recall/F1の結果は作成していません。
 
-## Input and provenance
+## 入力と出所
 
 - Input: `demo-assets/source/audio-reactive-silent-demo4.mp3`
-- File size: 4,584,493 bytes; SHA-256 `4d818bb03aa231cdc1ecfaa1d1e03bb8e2bc6dc09d72478c045231291a80f043`.
-- `ffprobe`: MP3, 48,000Hz, stereo, reported stream/container duration 189.984s.
-- Python Island decoded 189.960s (8,377,236 frames at 44.1kHz); the Demucs stems have the same frame count and begin at the decoded source origin. The 24ms difference is between MP3 metadata duration and decoded sample duration; no stem offset was introduced.
-- The source README does not identify this file or provide its license. License is recorded as `unknown`. Source type is marked `acoustic` per the task input, but could not be independently confirmed by listening.
-- The original MP3 was not modified. No external data was downloaded or uploaded.
+- ファイルサイズ: 4,584,493 bytes。SHA-256 `4d818bb03aa231cdc1ecfaa1d1e03bb8e2bc6dc09d72478c045231291a80f043`.
+- `ffprobe`の結果: MP3、48,000Hz、ステレオ、ストリーム/コンテナ上の長さは189.984秒。
+- Python Islandのデコード時間は189.960秒（44.1kHzで8,377,236フレーム）です。Demucsステムも同じフレーム数で、デコードしたソースの先頭から始まります。24msの差はMP3メタデータ上の長さとデコード後のサンプル長の差であり、ステムにオフセットは加えていません。
+- ソースREADMEにはこのファイルの説明もライセンスもありません。ライセンスは`unknown`として記録しています。タスクの入力に従ってソース種別を`acoustic`としましたが、試聴による独立確認はできていません。
+- 元のMP3は変更していません。外部データのダウンロードやアップロードも行っていません。
 
-## Separation and stem validation
+## 音源分離とステム検証
 
-The existing Python Island CLI was run once, which reuses the current pinned Demucs path and produces the timeline, summary, metadata, and four stems from that same inference:
+既存のPython Island CLIを1回実行しました。現在固定されているDemucs経路を再利用し、同じ推論からTimeline、Summary、メタデータ、4つのステムを生成します。
 
-- Model: `htdemucs` 4.1.0, CPU, 4 threads, shifts 0, overlap 0.25, deterministic algorithms enabled.
-- Checkpoint was already cached and passed the existing SHA-256-prefix validation; full SHA-256 in metadata is `8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4`.
-- `uv run --locked` could not access the shared read-only uv cache; the same existing CLI was run directly from `python-island/.venv` without installing or changing dependencies.
-- Separation time 89.974s; total pipeline time 96.835s; peak RSS 1,644.5 MiB.
-- All four stems are PCM16 stereo WAV, 44,100Hz, 8,377,236 frames, 189.960s, 33,508,988 bytes each.
-- All stem samples are finite and have no full-scale clipped samples. Peak/RMS: drums 0.614197 / 0.078153; bass 0.307312 / 0.045901; other 0.459625 / 0.090776; vocals 0.012695 / 0.000294.
+- モデル: `htdemucs` 4.1.0、CPU、4スレッド、shifts 0、overlap 0.25、決定論的アルゴリズム有効。
+- チェックポイントは既にキャッシュされており、既存のSHA-256先頭部分による検証に合格しました。メタデータ上のSHA-256全体は `8726e21a993978c7ba086d3872e7608d7d5bfca646ca4aca459ffda844faa8b4`.
+- `uv run --locked`は共有の読み取り専用uvキャッシュにアクセスできなかったため、依存関係を追加・変更せず、同じ既存CLIを`python-island/.venv`から直接実行しました。
+- 分離時間は89.974秒、パイプライン全体は96.835秒、ピークRSSは1,644.5 MiB。
+- 4ステムすべてPCM16ステレオWAVで、44,100Hz、8,377,236フレーム、189.960秒、各33,508,988 bytesです。
+- 全ステムのサンプルは有限値で、フルスケールのクリッピングはありません。Peak/RMS: drums 0.614197 / 0.078153、bass 0.307312 / 0.045901、other 0.459625 / 0.090776、vocals 0.012695 / 0.000294。
 
 Generated stems:
 
@@ -29,29 +29,29 @@ Generated stems:
 - `demo-assets/stems/demo4-kick-evaluation/vocals.wav`
 - `demo-assets/stems/demo4-kick-evaluation/other.wav`
 
-The existing Python Island also wrote `feature-timeline.json`, `music-summary.json`, and `analysis-metadata.json` under `demo-assets/generated/demo4-kick-evaluation/`. The summary records 138 estimated Kick events; this is detector output, not a labeled count.
+既存のPython Islandは`demo-assets/generated/demo4-kick-evaluation/`に`feature-timeline.json`、`music-summary.json`、`analysis-metadata.json`も出力しました。Summaryには推定Kickイベント138件が記録されています。これは検出器の出力であり、ラベル付け済み件数ではありません。
 
-## Candidate review data
+## 候補レビュー用データ
 
-Created local-only file `demo-assets/generated/demo4-kick-evaluation/kick-candidates-unverified.json` (1,958,422 bytes). It records:
+ローカル専用ファイル`demo-assets/generated/demo4-kick-evaluation/kick-candidates-unverified.json`（1,958,422 bytes）を作成しました。次の情報を記録しています。
 
-- the source hash, source type assertion, unknown license, stem path, time range 0–189,960ms, and the no-audio-review state;
-- 2,925 positive-score local-maximum candidate frames, all marked `labelClass: candidate` and `reviewStatus: unverified`;
-- current detector disposition, strength if accepted, score, low-band energy, sub/body ratio, 80ms decay ratio, and gate results for each candidate;
-- 138 events accepted by the current detector and 2,787 candidates rejected or merged by at least one current condition;
-- no confirmed Kick labels, negative labels, or ambiguous labels. They are intentionally empty because no human audio review occurred.
+- ソースハッシュ、ソース種別の申告、ライセンス不明、ステムパス、時間範囲0–189,960ms、音声レビュー未実施の状態。
+- スコアが正の局所最大候補フレーム2,925件。すべて`labelClass: candidate`および`reviewStatus: unverified`。
+- 各候補について、現在の検出器の判定、採用時のstrength、score、低域エネルギー、sub/body比、80ms減衰比、ゲート結果。
+- 現在の検出器が採用したイベント138件、および現行条件の少なくとも1つで棄却または統合された候補2,787件。
+- 確認済みKickラベル、ネガティブラベル、曖昧ラベルはありません。人による音声レビューを実施していないため、意図的に空です。
 
-Candidate extraction is detector-derived and therefore has self-selection bias: it can omit acoustic events that do not create a local maximum in this detector's score. The candidate file has no `kickOnsetsMs` key and is not a Step 7k-22 evaluation manifest. No evaluation manifest was created, to prevent unverified candidates from being passed as truth labels.
+候補抽出は検出器に基づくため、自己選択バイアスがあります。この検出器のスコアで局所最大値にならない音響イベントは候補から漏れる可能性があります。候補ファイルに`kickOnsetsMs`キーはなく、Step 7k-22の評価マニフェストでもありません。未検証候補が正解ラベルとして渡されるのを防ぐため、評価マニフェストは作成していません。
 
-## Baseline and gate diagnostics
+## ベースラインとゲート診断
 
-The detector output was recomputed on the saved PCM16 `drums.wav`. All 138 event times match the pipeline Timeline exactly. Strength arrays are aligned; their values differ by at most 0.000032 after writing/re-reading the PCM16 stem because the pipeline Timeline was extracted from the pre-quantized Demucs array. The candidate file's stored strengths match the re-read WAV evaluation. This is a consistency check, not ground-truth accuracy.
+保存済みPCM16の`drums.wav`で検出器出力を再計算しました。138件すべてのイベント時刻がパイプラインのTimelineと完全一致します。Strength配列は整列しており、値の差は最大0.000032です。パイプラインのTimelineは量子化前のDemucs配列から抽出され、その後PCM16ステムを書き出して読み直したために生じた差です。候補ファイルに保存されたstrengthは、WAVを再読込した評価結果と一致します。これは整合性確認であり、正解データに対する精度ではありません。
 
-Because labels are unverified, the Step 7k-22 evaluation CLI was **not** run and TP/FP/FN, Precision, Recall, F1, onset accuracy, missed-Kick counts, and Snare/Tom/Bass false-positive counts are unavailable.
+ラベルが未検証のため、Step 7k-22評価CLIは**実行していません**。TP/FP/FN、Precision、Recall、F1、オンセット精度、見逃したKick数、Snare/Tom/Bassの誤検出数は得られていません。
 
-For diagnostic review only, the current candidate trace had 2,925 positive-score local peaks. Overlapping gate-failure counts among those peaks were:
+診断確認用として、現在の候補トレースにはスコアが正の局所ピークが2,925件ありました。それらのピークにおける、重複を含むゲート不合格件数は次のとおりです。
 
-| Gate | Candidate peaks failing |
+| ゲート | 不合格となった候補ピーク数 |
 |---|---:|
 | Adaptive score threshold | 2,117 |
 | Low-band floor | 1,474 |
@@ -59,30 +59,30 @@ For diagnostic review only, the current candidate trace had 2,925 positive-score
 | 80ms decay ≤ 0.50 | 1,649 |
 | 120ms merge suppression | 30 |
 
-Counts overlap and must not be summed as unique candidates. Local-maximum failures are zero by construction here because the review set contains local maxima only. Single-gate-disabled output event counts were: baseline 138; adaptive threshold disabled 281; low-band floor disabled 144; local-maximum gate disabled 307; sub/body ratio disabled 484; decay gate disabled 171; 120ms merge disabled 168. These are changes in candidate output volume only, **not** accuracy or improvement measurements.
+件数には重複があるため、ユニークな候補数として合算してはいけません。レビュー対象は局所最大値のみなので、構造上、局所最大ゲートの不合格数は0です。ゲートを1つずつ無効化した場合の出力イベント数は、ベースライン138、適応閾値無効281、低域下限無効144、局所最大ゲート無効307、sub/body比無効484、減衰ゲート無効171、120ms統合無効168でした。これは候補出力数の変化だけであり、精度や改善の測定値では**ありません**。
 
-The detector-event strength distribution was min 0.0433, median 0.0992, p90 0.3893, max 1.0. Of 138 events, 69 have strength ≤ 0.1. For a Kick-bound Effect using the common Binding threshold 0.1, those individual event strengths do not clear that threshold. This is a separate possible response reduction from detector misses; it is not a visual/browser result. The current default Spectrum Bars and Ink Diffusion Bindings use `music.energy`, so they are not Kick response tests.
+検出イベントのstrength分布は、最小0.0433、中央値0.0992、p90 0.3893、最大1.0でした。138件中69件のstrengthは0.1以下です。共通Binding閾値0.1を使うKick連動Effectでは、これらのイベント単体のstrengthは閾値を超えません。これは検出漏れとは別に応答を弱める可能性がありますが、画面やブラウザーでの結果ではありません。現在既定のSpectrum BarsとInk DiffusionのBindingは`music.energy`を使用するため、Kick応答の検証にはなりません。
 
-## Evaluation labels and next work
+## 評価ラベルと次の作業
 
-Audio listening was not available in this execution, so no candidate was moved to `confirmed`, `rejected`, or `ambiguous`. Snare/Tom/Bass negative-event labels are also absent. The source rights remain unknown; retain all generated media locally and do not publish or distribute it until rights are confirmed.
+この実行環境では音声を聴けなかったため、候補を`confirmed`、`rejected`、`ambiguous`のいずれにも変更していません。Snare/Tom/Bassの負イベントラベルもありません。ソースの権利は不明のままです。権利が確認されるまでは生成メディアをローカルに保持し、公開・配布しないでください。
 
-Next steps for a human reviewer:
+人によるレビューの次の手順:
 
-1. Audition the local drums stem alongside the source and inspect the timestamped candidate list. Review a stratified subset across quiet/loud sections and include rejected gate candidates, not only the 138 accepted events.
-2. Mark each reviewed event as `confirmed`, `rejected`, or `ambiguous`, and add labeled Snare/Tom/Bass negatives when identifiable. Preserve provenance and review notes.
-3. Only after confirmed onset labels exist, create a separate Step 7k-22-compatible manifest containing confirmed Kick timestamps and run the baseline with ±80ms matching.
-4. Keep unreviewed candidates separate. If the reviewer confirms this source is not acoustic or cannot establish the source rights, do not use it for the acoustic dataset.
+1. ローカルのdrumsステムをソースと合わせて試聴し、時刻付き候補一覧を確認します。静かな区間と大きな音の区間から層化抽出してレビューし、採用済み138件だけでなくゲートで棄却された候補も含めます。
+2. レビューした各イベントを`confirmed`、`rejected`、`ambiguous`のいずれかにし、識別できるSnare/Tom/Bassの負例ラベルも追加します。出所情報とレビュー記録を保持します。
+3. オンセットの確認済みラベルができてから、確認済みKickのタイムスタンプを含むStep 7k-22互換の別マニフェストを作り、±80ms照合でベースラインを実行します。
+4. 未レビュー候補は分けて保持します。レビューでソースがアコースティックでないと確認された場合、または権利を確認できない場合は、アコースティックデータセットに使用しません。
 
-## Compatibility, tests, and changed files
+## 互換性、テスト、変更ファイル
 
-No detector condition, Demucs model/weights, Timeline v1, Audio Analyze API, Frontend Binding, Blueprint/Project/Cloud contract, database, authentication, or dependency was changed. Demo1–demo3 outputs were not changed. The new stem/generated files are ignored by the repository's existing `demo-assets` rules and remain local.
+検出条件、Demucsモデル/重み、Timeline v1、Audio Analyze API、Frontend Binding、Blueprint/Project/Cloud契約、データベース、認証、依存関係は変更していません。Demo1〜demo3の出力も変更していません。新しいステム/生成ファイルは既存リポジトリの`demo-assets`ルールで無視され、ローカルにのみ残ります。
 
-- Python Island full suite: **40 passed**, with one existing `PytestUnknownMarkWarning` for the `integration` marker. No code/tests changed in this task.
-- `mypy --strict src`, Ruff (`src tests --ignore E501`), and `git diff --check`: passed.
-- Existing `htdemucs` CLI completed successfully and wrote the new target-specific output directories without overwriting prior outputs.
-- WAV integrity/format/finite/peak/duration checks: passed for all four stems.
-- Candidate file JSON parse, unique timestamp ordering/range, accepted count/strength alignment, exact event timestamp equality to Timeline, and strength quantization delta: checked.
-- `git diff --check`: passed.
+- Python Island全テスト: **40件成功**。既存の`integration`マーカーに対する`PytestUnknownMarkWarning`が1件ありました。このタスクではコード/テストを変更していません。
+- `mypy --strict src`、Ruff（`src tests --ignore E501`）、`git diff --check`: 成功。
+- 既存の`htdemucs` CLIは正常終了し、以前の出力を上書きせず、対象専用の新しい出力ディレクトリに書き込みました。
+- 4つすべてのステムでWAVの整合性、形式、有限値、ピーク、長さの確認に成功。
+- 候補ファイルのJSON解析、タイムスタンプの一意性・順序・範囲、採用件数とstrengthの整列、イベント時刻とTimelineの完全一致、strength量子化差を確認。
+- `git diff --check`: 成功。
 
-Changed tracked documentation: this report, `CURRENT_STATE.md`, `OPEN_ISSUES.md`, `TEST_STRATEGY.md`, `CURRENT_TASK.md`, and the `demo-assets/source/README.md`, `demo-assets/stems/README.md`, and `demo-assets/generated/README.md` asset-management notes. New local ignored data: four WAV stems, Python Island Timeline/Summary/metadata, and `kick-candidates-unverified.json`.
+追跡対象で変更した文書: このレポート、`CURRENT_STATE.md`、`OPEN_ISSUES.md`、`TEST_STRATEGY.md`、`CURRENT_TASK.md`、およびアセット管理メモの`demo-assets/source/README.md`、`demo-assets/stems/README.md`、`demo-assets/generated/README.md`。新規のローカル無視データ: WAVステム4本、Python IslandのTimeline/Summary/メタデータ、`kick-candidates-unverified.json`。

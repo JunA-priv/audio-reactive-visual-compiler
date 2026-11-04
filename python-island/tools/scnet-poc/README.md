@@ -7,8 +7,9 @@ API, or the production separator.
 
 ## Current status
 
-The source environment could not resolve external hosts, so the official source
-checkout and checkpoint were not downloaded and no inference result is claimed.
+The official source checkout and checkpoint are available locally and pinned
+below. Dependency installation may still require a network-enabled WSL2
+environment before inference can run.
 SCNet upstream's code and its author's checkpoint clarification are MIT, with
 attribution required. The upstream says the model was trained on MUSDB; SigSep
 limits MUSDB access to academic use and lists track-specific rights. Whether
@@ -19,21 +20,20 @@ separate rights question is cleared.
 ## Pinned inputs
 
 - Official code: <https://github.com/starrytong/SCNet>
+- Official code commit: `5d95bf96b19c3eede63248d171efeca8e3abb948`.
 - Official standard checkpoint: the `checkpoint.th` Google Drive link in the
-  official README. Expected SHA-256: `1bc0d1abb20bfdf966dcd07637bafd03e4bc13653d09ef18bc9b3e342eafe2aa`;
-  expected size: 42,434,986 bytes. The digest is independently recorded in the
-  `audiojs/scnet` model card for the original checkpoint, not published in the
-  official README. Verify it before loading; this PoC does not download weights.
+  official README. The official Drive retrieval was confirmed to match the
+  local file. Expected SHA-256: `f8aff3bc8dd816aad392800d9d69519add719a2fbd22550af6f8cb2138d25ff5`;
+  expected size: 42,434,545 bytes. A third-party model card records a different
+  hash; it is not used for verification. The PoC verifies the local file before
+  loading and uses PyTorch `weights_only=True` for the tensor-only checkpoint.
 - Official inference config: `conf/config.yaml` from the same SCNet checkout.
 - The SCNet-large model is optional and intentionally not included in this first
   run. It needs its own official checkpoint digest/config verification before
   acquisition.
 
-The official source is a moving Git branch and the current execution environment
-could not obtain a commit SHA. Before evaluating, clone the official repository,
-record `git rev-parse HEAD`, review its license and source, then run the command
-below. The output JSON records that commit. Do not substitute third-party ONNX
-files for this PyTorch baseline.
+Review the pinned source and license before running. The output JSON records the
+source commit. Do not substitute third-party ONNX files for this PyTorch baseline.
 
 ## Environment setup
 
@@ -60,8 +60,7 @@ stat -c '%s' /path/to/checkpoint.th
 ```
 
 Both values must match the pinned values above. Do not place the weight under
-Git. If either differs, stop and investigate rather than updating the expected
-value from a mirror.
+Git. If either differs, stop and investigate rather than changing the pin.
 
 ## Comparison command
 
@@ -75,9 +74,9 @@ python-island/tools/scnet-poc/.venv/bin/python \
   python-island/tools/scnet-poc/compare.py \
   --source demo-assets/source/audio-reactive-silent-demo4.mp3 \
   --demucs-stems demo-assets/stems/demo4-kick-evaluation \
-  --scnet-repo python-island/tools/scnet-poc/SCNet \
+  --scnet-repo python-island/tools/scnet-poc/external/SCNet \
   --checkpoint /path/to/checkpoint.th \
-  --config python-island/tools/scnet-poc/SCNet/conf/config.yaml \
+  --config python-island/tools/scnet-poc/external/SCNet/conf/config.yaml \
   --output-dir /tmp/arvc-scnet-demo4
 ```
 
@@ -97,6 +96,16 @@ not TP/FP/FN or accuracy measures because no confirmed human annotations exist.
 The output directory contains the four SCNet stems, `comparison.json`, and
 `features.csv`. It will refuse a non-empty destination. No output is written in
 the existing demo-assets folders by default.
+
+`features.csv` keeps the original event columns and appends event offset p90/max,
+match rate, and comparison status. It writes one record for each Kick/Snare event
+and each of the five feature series in every Gate Mode (28 data rows total).
+Series rows include both means, MAE, MAE normalized by the Demucs mean absolute
+level, Pearson correlation, and peak-time delta. Undefined metrics are empty
+cells; `comparisonStatus` distinguishes empty, misaligned, invalid, and valid
+comparisons. Corresponding event and series values are also recorded in
+`comparison.json` for cross-checking. Event matches remain descriptive
+model-to-model comparisons, not accuracy against human labels.
 
 ## What this does not establish
 

@@ -1,44 +1,44 @@
-# Step 7k-24 — Acoustic Kick Annotation & Evaluation
+# Step 7k-24 — アコースティックKickのアノテーションと評価
 
-**Status: partial.** A local-only annotation UI and complete-interval evaluation path were implemented. Automated Python validation passes, but this environment denied loopback socket binding, so the HTTP app could not be started here. No browser interaction or human audio review was performed. No confirmed labels or accuracy metrics were created.
+**状態: 部分完了。** ローカル専用のアノテーションUIと、完了区間を対象とする評価経路を実装しました。Pythonの自動検証は成功しましたが、この環境ではloopback socketのbindが拒否され、HTTPアプリを起動できませんでした。ブラウザー操作や人による音声レビューは行っていません。確認済みラベルや精度指標は作成していません。
 
-## Tool and data flow
+## ツールとデータフロー
 
-- Start from the repository root with `python-island/.venv/bin/python -m python_island.kick_annotation_server`, then open `http://127.0.0.1:8765/`.
-- The server binds only to `127.0.0.1`; it reads the source MP3, `drums.wav`, the unchanged `kick-candidates-unverified.json`, and `feature-timeline.json`. Playback uses the local drums stem. The waveform uses the saved drums peak series; only the visible timeline window is painted, and the candidate list is virtualized.
-- Play, pause, stop, seek, interval playback/loop, waveform zoom and horizontal pan are available. Shift-drag creates a review interval. Detector-accepted and rejected/merged candidates have separate marker styles; each candidate exposes score, detected strength and failed gates.
-- Candidate labels are `confirmed`, `rejected`, `ambiguous`, or `unverified`. Kick labels can be added at candidate or non-candidate times. Snare/Tom/Bass/Other/Unknown negative events are supported. A manual Kick within ±80ms of a candidate is linked to that candidate to avoid duplicate review rows.
-- Annotations are saved separately at `demo-assets/generated/demo4-kick-evaluation/kick-annotations.json`. The schema stores v1, source/stem/candidate SHA-256 values, intervals, event labels and notes. Saves are atomic. A hash mismatch is rejected instead of reopening annotations against different audio.
+- リポジトリルートから`python-island/.venv/bin/python -m python_island.kick_annotation_server`で起動し、`http://127.0.0.1:8765/`を開きます。
+- サーバーは`127.0.0.1`のみで待ち受けます。ソースMP3、`drums.wav`、変更していない`kick-candidates-unverified.json`、`feature-timeline.json`を読み込みます。再生にはローカルのdrumsステムを使います。波形は保存済みdrumsピーク系列に基づき、表示中のTimeline範囲だけを描画し、候補一覧を仮想化します。
+- 再生、一時停止、停止、シーク、区間再生/ループ、波形ズームと横パンが可能です。Shiftドラッグでレビュー区間を作成します。検出器が採用した候補と棄却/統合した候補はマーカー表示を分け、各候補のscore、検出strength、不合格ゲートを確認できます。
+- 候補ラベルは`confirmed`、`rejected`、`ambiguous`、`unverified`です。候補時刻にも候補以外の時刻にもKickラベルを追加できます。Snare/Tom/Bass/Other/Unknownの負イベントにも対応します。候補から±80ms以内に手動Kickを追加した場合、レビュー行の重複を避けるため、その候補にリンクします。
+- アノテーションは`demo-assets/generated/demo4-kick-evaluation/kick-annotations.json`に別途保存します。スキーマにはv1、ソース/stem/候補のSHA-256値、区間、イベントラベル、メモを保存します。保存はアトミックです。ハッシュが一致しない場合、異なる音声に対してアノテーションを開くのではなく拒否します。
 
-## Evaluation and interval policy
+## 評価と区間ポリシー
 
-Only `complete` intervals are eligible. Completion requires the interval to be played through, every candidate in the interval to be classified, no unresolved ambiguous label, and either confirmed Kick labels or an explicit no-Kick confirmation. Intervals cannot overlap. The evaluator additionally requires complete intervals to be separated by at least 160ms at the default ±80ms tolerance.
+評価対象は`complete`区間のみです。完了には、区間全体の再生、区間内すべての候補の分類、未解決のambiguousラベルがないこと、さらに確認済みKickラベルまたはKickなしの明示確認が必要です。区間は重複できません。また評価器は、既定の±80ms許容差を前提に、完了区間同士が160ms以上離れていることを要求します。
 
-The evaluator runs the unchanged current detector once on the **full drums stem**, then scores only the complete interval cores. It does not crop the stem: the detector uses clip-global adaptive percentiles, and cropping would change that behavior. Detections up to the configured tolerance outside an interval may match a truth event inside; unmatched detections outside the reviewed core are excluded from FP. Result JSON includes per-interval and aggregate TP/FP/FN, precision/recall/F1, onset error, gate misses, single-gate ablations, and nearest labeled negative-event categories. No metric is produced until a complete interval exists.
+評価器は変更していない現行検出器を**drumsステム全体**に1回適用し、完了区間のコア部分のみを採点します。検出器はクリップ全体に対する適応パーセンタイルを使用するため、ステムを切り出しません。切り出すとその挙動が変わるためです。区間外でも設定許容差以内の検出は、区間内の正解イベントと照合できます。レビュー済みコアの外にある未照合検出はFPから除外されます。結果JSONには区間別および集計のTP/FP/FN、precision/recall/F1、オンセット誤差、ゲートによる見逃し、単一ゲートの除去比較、最も近いラベル付き負イベント分類が含まれます。完了区間ができるまでは指標を出しません。
 
-The prior Step 7k-22 positional manifest interface remains supported. Annotation evaluation is an additional CLI mode using `--annotations`, `--source`, `--stem`, and `--candidates`. The server invokes that mode and writes `kick-evaluation-results.json` locally.
+従来のStep 7k-22の位置引数マニフェスト形式も引き続き利用できます。アノテーション評価は`--annotations`、`--source`、`--stem`、`--candidates`を使う追加CLIモードです。サーバーはこのモードを呼び出し、ローカルに`kick-evaluation-results.json`を書き込みます。
 
-## Verification
+## 検証
 
-- Python Island full suite: **48 passed**.
-- `mypy --strict src`: passed.
-- Ruff on changed Python source/tests: passed.
-- JavaScript syntax check with Node: passed.
-- Candidate fixture integrity: source hash checked at server startup; 2,925 candidate records and 9,498 waveform peak records are the expected input sizes.
-- Real HTTP/API smoke test could not run: sandbox rejected `ThreadingHTTPServer` loopback bind with `PermissionError: [Errno 1] Operation not permitted`.
-- No Chromium/Chrome/Firefox executable was available. Browser UI, audio playback/seek/loop, visual rendering and pointer interaction remain unverified.
-- No human listened to or labeled the audio. All prior candidates remain unverified, and no baseline precision/recall/F1 was calculated.
-- `git diff --check`: see final verification; no product Frontend, detector, Demucs, Timeline/API, Blueprint, Project, Cloud, DB, Auth, or Editor files were changed.
+- Python Island全テスト: **48件成功**。
+- `mypy --strict src`: 成功。
+- 変更したPythonソース/テストのRuff: 成功。
+- NodeによるJavaScript構文確認: 成功。
+- 候補fixtureの整合性: サーバー起動時にソースハッシュを確認。候補レコード2,925件、波形ピークレコード9,498件が想定入力数です。
+- 実HTTP/APIスモークテストは実行できませんでした。サンドボックスが`ThreadingHTTPServer`のloopback bindを`PermissionError: [Errno 1] Operation not permitted`で拒否しました。
+- Chromium/Chrome/Firefox実行ファイルがありませんでした。ブラウザーUI、音声再生/シーク/ループ、画面描画、ポインター操作は未検証です。
+- 人による試聴やラベル付けはありません。既存候補はすべて未検証のままで、ベースラインprecision/recall/F1も計算していません。
+- `git diff --check`: 最終検証を参照。製品Frontend、検出器、Demucs、Timeline/API、Blueprint、Project、Cloud、DB、Auth、Editorのファイルは変更していません。
 
-## Changed files
+## 変更ファイル
 
-- `python-island/src/python_island/kick_annotation_server.py` — loopback-only local HTTP app, asset hash binding, annotation validation and atomic persistence.
-- `python-island/tools/kick-annotator/index.html` — standalone Japanese waveform/candidate review UI.
-- `python-island/src/python_island/kick_evaluation.py` — opt-in annotation CLI and complete-interval evaluation; legacy manifest mode retained.
-- `python-island/tests/test_kick_annotation_server.py`, `python-island/tests/test_kick_evaluation.py` — schema, hash mismatch, persistence, completion gating, interval boundary and baseline checks.
-- `python-island/pyproject.toml`, `python-island/README.md` — local command and usage instructions.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/TEST_STRATEGY.md` — state and evaluation workflow notes.
+- `python-island/src/python_island/kick_annotation_server.py` — loopback限定のローカルHTTPアプリ、アセットハッシュの紐付け、アノテーション検証、アトミック永続化。
+- `python-island/tools/kick-annotator/index.html` — 単独で動作する日本語の波形/候補レビューUI。
+- `python-island/src/python_island/kick_evaluation.py` — 任意指定のアノテーションCLIと完了区間評価。従来のマニフェストモードも維持。
+- `python-island/tests/test_kick_annotation_server.py`, `python-island/tests/test_kick_evaluation.py` — スキーマ、ハッシュ不一致、永続化、完了判定、区間境界、ベースラインのテスト。
+- `python-island/pyproject.toml`, `python-island/README.md` — ローカルコマンドと利用手順。
+- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/TEST_STRATEGY.md` — 状態と評価手順のメモ。
 
-## Remaining work
+## 残作業
 
-Run the UI on a host where loopback binds are permitted, manually listen to selected representative intervals, label every candidate within each reviewed interval plus missed Kicks and known negatives, mark only fully reviewed intervals complete, then run the baseline evaluator. Confirm the source license before distributing any media or labels. The unverified candidate file and source/stem assets were not changed by this task.
+loopback bindが許可されるホストでUIを起動し、代表的な区間を人が試聴してください。レビュー対象区間の全候補に加えて、見逃したKickや既知の負例をラベル付けします。完全にレビューした区間のみcompleteにしてから、ベースライン評価器を実行してください。メディアやラベルを配布する前にソースのライセンスを確認してください。このタスクでは未検証候補ファイルとソース/stemアセットを変更していません。

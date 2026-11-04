@@ -1,6 +1,6 @@
 # 技術構成と選定状況
 
-DECIDED（Step 7i更新）：React/TypeScript/Vite、Canvas 2D、Go/Echo、Python/Demucs CPU、OpenAI Responses API（`gpt-6-luna`）、Supabase Auth/PostgreSQL、Cloud Run、Cloudflare Pages/R2、GitHub Actions。クラウドは実装済みではない。Gemini SDKはprovider移行で削除済み。
+DECIDED（Step 7k-36）：React/TypeScript/Vite、Canvas 2D、Go/Echo、Python/SCNet standard CPU（Demucsはdevelopment optional extraのみ）、OpenAI Responses API（`gpt-6-luna`）、Supabase Auth/PostgreSQL、Cloud Run、Cloudflare Pages/R2、GitHub Actions。Cloud Run等クラウド運用は未実装。Gemini SDKはprovider移行で削除済み。
 
 FACT（2026-10-31、WSL2で実測）：Node 24.22.2、npm 11.19.1、Linux x86_64。`.nvmrc`とfrontend/package.jsonで固定。npm registryへ接続成功。
 
@@ -10,7 +10,7 @@ FACT（frontend lock済み）：React/React DOM 19.3.1、TypeScript 6.0.3、Vite
 
 DECIDED：採用時に確認日・公式advisory・互換性・完全版番号・lock・検証結果を記録する。Demucsは元リポジトリがアーカイブ済みのため、PyTorch/torchaudioとの互換性と既知の脆弱性を別環境で評価する。
 
-FACT（2026-10-31）：Python IslandでPython 3.14.10 / PyTorch 2.14.1+cpu / Demucs 4.1.0 / NumPy 2.3.4を固定。uv 0.8.12がuv.lock生成・環境同期を担当し、Python standaloneはAstral python-build-standalone 20261026からSHA256検証してworkspace内に導入する。依存の詳細は`python-island/pyproject.toml`と`uv.lock`。
+FACT（Step 7k-36）：Python IslandでPython 3.14.10 / PyTorch 2.14.1+cpu / NumPy 2.3.4 / tqdm 4.70.1を固定。Demucs 4.1.0は`demucs-dev` optional extraへ分離。SCNet standard inference subsetはupstream commit `5d95bf96b19c3eede63248d171efeca8e3abb948`由来を同梱し、CPU推論用にAccelerate device selectionを除いた。checkpointはSHA-256とbytesを検証し、Git/pip配布物へ含めない。依存の詳細は`python-island/pyproject.toml`と`uv.lock`。
 
 FACT：FFmpegは実測版6.1.1-3ubuntu5（Ubuntu 24.04）。安全な採用版は確定していないため、セキュリティ上の未解決事項として管理。特徴量は10ms（100Hz）間隔。Frontendの必須フィールドと時間単位(ms)を維持し、プロジェクト/API共通schema決定前のPython分析schemaVersion 1として付加情報を提供する。
 

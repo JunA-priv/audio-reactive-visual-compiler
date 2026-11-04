@@ -17,7 +17,13 @@ from python_island import __version__
 from python_island.audio import AudioInfo, decode_audio, probe_audio
 from python_island.errors import AnalysisError
 from python_island.features import KICK_GATE_MODES, FeatureTimeline, extract_features
-from python_island.separation import checkpoint_metadata, checkpoint_path, separate_stems
+from python_island.separation import (
+    ENGINE_SCNET_STANDARD,
+    SEPARATION_ENGINES,
+    checkpoint_metadata,
+    checkpoint_path,
+    separate_stems,
+)
 
 
 def _json_bytes(value: object) -> bytes:
@@ -58,11 +64,14 @@ def run_analysis(
     separator: Callable[..., dict[str, np.ndarray]] | None = None,
     stems_dir: Path | None = None,
     kick_gate_mode: str = "hard",
+    engine: str = ENGINE_SCNET_STANDARD,
 ) -> dict[str, object]:
     if threads < 1 or threads > 16:
         raise AnalysisError("CPU thread count must be between 1 and 16")
     if kick_gate_mode not in KICK_GATE_MODES:
         raise AnalysisError("Kick gate mode must be off, soft, middle, or hard")
+    if engine not in SEPARATION_ENGINES:
+        raise AnalysisError(f"Unsupported separation engine: {engine}")
     source = input_path.expanduser().resolve(strict=True)
     destination = output_dir.expanduser().resolve()
     names = ("feature-timeline.json", "music-summary.json", "analysis-metadata.json")
@@ -88,13 +97,13 @@ def run_analysis(
     duration_ms = round(len(audio) * 1000 / 44_100)
 
     separation_started = time.perf_counter()
-    stems = (separator or separate_stems)(audio, threads=threads)
+    stems = (separator or separate_stems)(audio, threads=threads, engine=engine)
     separation_seconds = time.perf_counter() - separation_started
     required_stems = {"drums", "bass", "vocals", "other"}
     if set(stems) != required_stems:
-        raise AnalysisError("Demucs output must contain exactly drums, bass, vocals, and other")
+        raise AnalysisError("Separator output must contain exactly drums, bass, vocals, and other")
     if any(stem.shape != audio.shape or not np.isfinite(stem).all() for stem in stems.values()):
-        raise AnalysisError("Demucs stems must be finite and match input duration and channels")
+        raise AnalysisError("Separator stems must be finite and match input duration and channels")
 
     features_started = time.perf_counter()
     timeline: FeatureTimeline = extract_features(
@@ -127,7 +136,7 @@ def run_analysis(
             "fileBytes": input_info.file_bytes,
         },
         "analysis": {
-            "model": "htdemucs",
+            "model": engine,
             "device": "cpu",
             "stemRms": stem_rms,
             "estimatedKickCount": len(timeline["kickEvents"]),
@@ -139,15 +148,14 @@ def run_analysis(
         },
     }
 
-    model_path = checkpoint_path()
-    model_info = checkpoint_metadata(model_path)
+    model_path = checkpoint_path(engine)
+    model_info = checkpoint_metadata(model_path, engine)
     elapsed = time.perf_counter() - started
     metadata: dict[str, object] = {
         "metadataVersion": 1,
         "pythonIslandVersion": __version__,
         "pythonVersion": platform.python_version(),
         "pytorchVersion": torch.__version__,
-        "demucsVersion": "4.1.0",
         "numpyVersion": np.__version__,
         "ffmpegVersion": _tool_version("ffmpeg"),
         "ffprobeVersion": _tool_version("ffprobe"),
@@ -166,6 +174,8 @@ def run_analysis(
         },
         "model": model_info,
     }
+    if engine == "htdemucs":
+        metadata["demucsVersion"] = model_info.get("demucsVersion", "unknown")
     if stem_destination is not None:
         metadata["stemOutputs"] = {
             name: {

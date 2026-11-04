@@ -1,33 +1,33 @@
-# Step 7k-11i — WebGL2 Ink Region Clip fix
+# Step 7k-11i — WebGL2 Ink Region clip修正
 
-**status: partial**
+**状態：一部完了**
 
-## Cause
+## 原因
 
-`renderEditorFrame` handled `ink-diffusion` before the normal Canvas command path. Normal commands go through `drawCanvasCommand`, which saves Canvas state and applies `pathRegion(...)` before painting. The WebGL route instead rendered into a Region-sized rectangular offscreen canvas and called `drawImage()` directly, before any Polygon clip had been established. The offscreen texture therefore composited over its full rectangular bounding box.
+`renderEditorFrame`は通常のCanvas command経路より先に`ink-diffusion`を処理していました。通常commandは`drawCanvasCommand`を通り、Canvas状態をsaveしてから描画前に`pathRegion(...)`を適用します。一方WebGL経路は、Region sizeの矩形offscreen canvasへ描画し、Polygon clipを設定しないまま`drawImage()`を直接呼んでいました。そのためoffscreen textureが矩形bounding box全体に合成されました。
 
-The Region vertices and normalized-to-Canvas conversion were correct. The missing operation was applying the existing Canvas clip around the destination `drawImage()` call.
+Region頂点とnormalized座標からCanvas座標への変換は正しく、欠けていたのはdestinationの`drawImage()`を既存Canvas clipで囲む処理です。
 
-The current frontend Effect union contains one Ink Effect kind, `ink-diffusion`. `ink-flow` and `color-mixing` are shader-level behaviors within that Effect, not separately registered Effect kinds, so the shared fix covers those visual parts as well.
+現行Frontend Effect unionにあるInk Effect kindは`ink-diffusion`の1種類です。`ink-flow`と`color-mixing`は独立登録されたEffect kindではなく、このEffect内のshader-level挙動です。そのため共通修正はこれらの視覚部分にも適用されます。
 
-## Fix
+## 修正
 
-In `renderEditorFrame`, the WebGL Ink branch now:
+`renderEditorFrame`のWebGL Ink branchで次の処理を行います。
 
-1. saves the destination Canvas state;
-2. applies the existing `pathRegion()` function using the command's Region and Blueprint dimensions;
-3. renders/composites the rectangular WebGL offscreen image;
-4. restores Canvas state in a `finally` block.
+1. destination Canvas状態を保存する。
+2. commandのRegionとBlueprint寸法を使い、既存`pathRegion()`を適用する。
+3. 矩形WebGL offscreen imageを描画/合成する。
+4. `finally` blockでCanvas状態を復元する。
 
-This uses the existing Polygon/Rectangle clipping mechanism and does not add a separate polygon-mask implementation. If WebGL is unavailable or fails, the temporary clip is restored and the Canvas2D fallback continues to draw through its existing per-command Region clipping. Effect ordering, opacity passed to the compositor, color handling, and the common Preview/WebM `renderEditorFrame` entry point are unchanged.
+既存のPolygon/Rectangle clip機構を使い、別のpolygon mask実装は追加しません。WebGLが利用できない、または失敗した場合、一時clipを復元し、Canvas2D fallbackは既存のcommand単位Region clipで描画を続けます。Effect順、compositorへ渡すopacity、色処理、Preview/WebM共有`renderEditorFrame` entry pointは変更していません。
 
-## Regression checks
+## 回帰確認
 
-Added a fake-context integration test for a diamond Polygon and a Rectangle. The test verifies the clip path is active at the WebGL `drawImage()` composite and that the fallback path commands are also painted with the appropriate clip. It checks state/order, not actual rasterized pixels.
+diamond PolygonとRectangleを使うfake-context統合testを追加しました。WebGL `drawImage()`合成時にclip pathが有効であること、fallback path commandにも適切なclipを適用することを確認します。実pixelではなく状態と処理順を検査します。
 
-Passed:
+成功：
 
-- `npm test -- --run` — 12 files, 130 tests
+- `npm test -- --run` — 12 file、130 test
 - `npm run typecheck`
 - `npm run lint`
 - `npm run build`
@@ -35,38 +35,38 @@ Passed:
 - `go vet ./...`
 - `git diff --check`
 
-One full test run executed concurrently with other frontend checks had an unrelated intermittent failure in the existing audio-restoration/WebM export UI test. A subsequent standalone full run passed all 130 tests.
+他Frontend検査と並行して実施した全test runの1回では、既存のaudio restoration/WebM export UI testに断続的な無関係の失敗がありました。その後、単独で全testを実行し130件すべて成功しました。
 
-## Compatibility and remaining verification
+## 互換性と残りの検証
 
-No Region geometry or persistence definitions changed. Blueprint, Timeline, Project and Cloud remain v1. No other Effect, API, dependency, DB, Auth, Python Island, or OpenAI behavior changed.
+Region geometryや永続化定義は変更していません。Blueprint、Timeline、Project、Cloudはv1のままです。他Effect、API、dependency、DB、Auth、Python Island、OpenAI挙動も変更していません。
 
-No browser executable was available. Actual Polygon outside-pixel preservation, shader/WebGL raster output, resize/Region-edit behavior on a real canvas, and WebM pixel parity remain unverified. Accordingly, the implementation and automated clip state/order checks pass, but visual acceptance is partial.
+browser executableがないため、Polygon外pixelが保持されること、shader/WebGL raster出力、実canvasでのresize/Region編集時の挙動、WebM pixel一致は未確認です。実装と自動clip state/order検査は成功しましたが、視覚受け入れは一部未完了です。
 
-## Changed files
+## 変更ファイル
 
-- `frontend/src/renderer.ts` — apply the existing Region clip during WebGL Ink compositing and restore state reliably.
-- `frontend/src/editor-renderer.test.ts` — check Polygon/Rectangle clip at WebGL image composition and Canvas fallback painting.
-- `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md` — record implementation and outstanding visual acceptance.
+- `frontend/src/renderer.ts` — WebGL Ink合成時に既存Region clipを適用し、状態を確実に復元。
+- `frontend/src/editor-renderer.test.ts` — WebGL image合成とCanvas fallback描画におけるPolygon/Rectangle clipを検査。
+- `CURRENT_TASK.md`、`docs/CURRENT_STATE.md`、`docs/OPEN_ISSUES.md` — 実装と未完了の視覚受け入れを記録。
 
-## Stage bounds re-investigation
+## Stage範囲の再調査
 
-The Region clip fix above addressed polygon leakage but did not address the smaller visible Ink field. Comparing the default model and render data identified a separate issue:
+上のRegion clip修正でpolygon漏れは解決しましたが、Inkの見える範囲が小さい問題は残っていました。既定modelとrender dataを比較した結果、別の問題が分かりました。
 
-- Blueprint Stage Region: normalized `x=.12`, `y=.14`, `width=.76`, `height=.72` on a 640×360 Blueprint, or x=76.8, y=50.4, width=486.4, height=259.2 logical pixels.
-- `effectCommandLayers` uses `normalizedBounds(region)` and places the Ink command at exactly those bounds.
-- WebGL offscreen pixel size is `ceil(region width/height × target canvas pixel scale)`; viewport matches that texture size.
-- `drawImage()` destination is the same logical Region rectangle. Preview target size is Blueprint size; WebM uses a uniformly scaled backing canvas, matching transform and offscreen pixel scale.
-- The fragment shader's `v_uv` already spans the Region-sized offscreen texture from 0 to 1. It incorrectly treated those values as full-Stage UVs and re-applied `(uv - regionOrigin) / regionSize`, discarding outer portions of the texture. This produced the smaller inner rectangle even when bounds and compositing destination were correct.
+- Blueprint Stage Region：640×360 Blueprint上でnormalized `x=.12`、`y=.14`、`width=.76`、`height=.72`。論理pixelではx=76.8、y=50.4、width=486.4、height=259.2。
+- `effectCommandLayers`は`normalizedBounds(region)`を使い、Ink commandを正確にその範囲へ配置します。
+- WebGL offscreen pixel sizeは`ceil(region width/height × target canvas pixel scale)`です。viewportはtexture sizeと一致します。
+- `drawImage()` destinationは同じ論理Region rectangleです。Preview target sizeはBlueprint size、WebMは均一scaleしたbacking canvasを使い、transformとoffscreen pixel scaleが対応します。
+- fragment shaderの`v_uv`は、Region sizeのoffscreen texture内ですでに0〜1を取ります。しかし誤って全StageのUVとして扱い、`(uv - regionOrigin) / regionSize`を再適用してtexture外側を捨てていました。そのためboundsと合成先が正しい場合でも、内側の小さな矩形しか描かれませんでした。
 
-Changed the shader's density-field coordinate to `local = v_uv`. Gradient coordinates still map `Region origin + local × Region size` into Stage coordinates, so global gradient orientation remains stage-based. Density aspect continues to use Region width/height and Stage resolution. No padding, fixed inset or destination scaling was added. The existing destination Region clip from the first 11i fix remains active.
+shaderのdensity-field座標を`local = v_uv`に変更しました。Gradient座標は引き続き`Region origin + local × Region size`からStage座標へ変換するため、global gradientの向きはStage基準です。density aspectはRegion width/heightとStage resolutionから求めます。padding、固定inset、destination scaleは追加していません。最初の11i修正で追加したdestination Region clipも有効なままです。
 
-Added regression checks for the default Stage bounds, full-canvas and half-size Rectangle Region bounds, the exact WebGL compositor destination arguments, Region-local shader UV, and preservation of Stage-space gradient mapping. Polygon and Rectangle WebGL-composite clip state and fallback clipping remain covered.
+既定Stage bounds、全canvas/半分サイズRectangle Region bounds、WebGL compositor destinationの正確な引数、Region-local shader UV、Stage座標でのGradient mapping維持を確認するregression testを追加しました。Polygon/RectangleのWebGL合成clip stateとfallback clipも引き続き検証します。
 
-After this re-investigation, `npm test -- --run` passed 12 files / 132 tests; `npm run typecheck`, `npm run lint`, `npm run build`, and `git diff --check` passed. No browser is available, so actual Stage outline-to-pixel comparison, GPU shader compilation, rendered Polygon/Rectangle pixels, canvas resize in-browser, and WebM raster dimensions/parity remain unverified. Status remains partial until visual acceptance.
+再調査後、`npm test -- --run`は12 file / 132 test成功。`npm run typecheck`、`npm run lint`、`npm run build`、`git diff --check`も成功しました。browserがないため、Stage outlineと実pixelの比較、GPU shader compile、描画後のPolygon/Rectangle pixel、browser上のcanvas resize、WebM raster寸法/一致は未確認です。視覚受け入れまで状態は一部完了です。
 
-Additional changed files for the re-investigation:
+再調査で変更した追加file：
 
-- `frontend/src/ink-webgl.ts` — use Region-local offscreen UV for density evaluation while keeping stage-space Gradient mapping.
-- `frontend/src/ink-webgl.test.ts` — prevent regression to double application of Region transform.
-- `frontend/src/editor-renderer.test.ts` — verify Stage/Rectangle bounds and compositor destination values.
+- `frontend/src/ink-webgl.ts` — Stage基準Gradient mappingを維持しながら、density評価にRegion-local offscreen UVを使用。
+- `frontend/src/ink-webgl.test.ts` — Region transform二重適用の再発を防止。
+- `frontend/src/editor-renderer.test.ts` — Stage/Rectangle boundsとcompositor destination値を検証。

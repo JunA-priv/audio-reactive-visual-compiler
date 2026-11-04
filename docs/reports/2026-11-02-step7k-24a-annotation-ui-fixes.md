@@ -1,42 +1,42 @@
-# Step 7k-24a — Kick Annotation UI Fixes
+# Step 7k-24a — KickアノテーションUIの修正
 
-**Status: partial.** The local annotation server and UI were updated, with Python and JavaScript unit checks passing. No Windows Chrome session was available, and this sandbox denies loopback socket binds; real media range requests and pointer-driven browser interactions remain unverified.
+**状態: 部分完了。** ローカルアノテーションサーバーとUIを更新し、PythonおよびJavaScriptの単体確認に成功しました。Windows版Chromeを利用できず、このサンドボックスではループバックソケットのbindも拒否されるため、実際のメディアRangeリクエストとポインター操作は未検証です。
 
-## Audio response reset
+## 音声レスポンスのリセット
 
-The failure occurred while writing an audio response body. When seeking, a browser can cancel an obsolete media request after opening a newer Range request; the resulting socket reset is consistent with that behavior. The available environment had no Chrome and no request trace from the user's session, so the specific Chrome cancellation sequence is a well-supported cause hypothesis, not a reproduced browser finding.
+音声レスポンス本文の書き込み中に失敗が発生しました。シーク時にブラウザーが新しいRangeリクエストを開始した後、古いメディアリクエストをキャンセルすることがあり、発生したソケットリセットはこの挙動と整合します。この環境にはChromeがなく、ユーザーセッションのリクエストトレースもないため、Chrome固有のキャンセル順序は有力な原因仮説ですが、ブラウザー上で再現確認した結果ではありません。
 
-The server now parses single byte ranges, returns `206` with `Content-Range`, `Accept-Ranges`, and the exact `Content-Length`, and returns `416` with `Content-Range: bytes */size` for an unsatisfied range. Unsupported/malformed multi-range requests fall back to a full `200` response. Audio is read and written in 64KiB chunks instead of loading the full WAV/range body into memory. `BrokenPipeError` and `ConnectionResetError` during audio headers/body are treated as client disconnects, with one concise interrupted-response log and a closed writer; unrelated file/stream `OSError` still propagates. A partial response is not reported as successful.
+サーバーは単一のbyte rangeを解析し、`Content-Range`、`Accept-Ranges`、正確な`Content-Length`を付けて`206`を返します。満たせないRangeには`Content-Range: bytes */size`付きで`416`を返します。非対応または不正形式の複数Rangeリクエストは全体を返す`200`にフォールバックします。WAV全体やRange本文をメモリに読み込まず、64KiB単位で音声を読み書きします。音声ヘッダー/本文の送信中に起きた`BrokenPipeError`と`ConnectionResetError`はクライアント切断として扱い、簡潔な中断ログを1件出してwriterを閉じます。それ以外のファイル/ストリームの`OSError`は引き続き伝播します。部分レスポンスを成功として報告することはありません。
 
-Tests exercise full/partial/unsatisfied response headers through the handler, range parsing, chunk output, short reads, expected disconnects on write/flush, and propagation of unrelated I/O errors. A real HTTP socket test could not run because loopback binding is denied in this environment.
+テストではhandler経由の全体/部分/範囲外レスポンスヘッダー、Range解析、チャンク出力、短い読み込み、write/flush時に想定される切断、無関係なI/Oエラーの伝播を確認します。この環境ではループバックbindが拒否されるため、実HTTPソケットテストは実行できませんでした。
 
-## Candidate review controls
+## 候補レビュー操作
 
-Each virtualized candidate row now has a short-audition button, Kick toggle, and direct `rejected`, `ambiguous`, and `unverified` actions. Audition begins up to 200ms before the candidate and stops 450ms after, clamped to audio bounds. It reuses the single existing AudioElement, replaces any prior audition, displays the active candidate, and leaves labels unchanged. Normal playback, interval playback/loop, audition, and manual seek use distinct playback modes; playback failures are shown in the status area.
+仮想化された各候補行に、短時間試聴ボタン、Kickトグル、`rejected`、`ambiguous`、`unverified`への直接操作を追加しました。試聴は候補の最大200ms前から始まり、450ms後に停止し、音声の範囲内に収めます。既存の単一AudioElementを再利用し、前の試聴を置き換え、再生中の候補を表示します。ラベルは変更しません。通常再生、区間再生/ループ、試聴、手動シークはそれぞれ異なる再生モードで管理し、再生失敗はステータス欄に表示します。
 
-The Kick toggle maps any non-confirmed state to `confirmed`, and `confirmed` to `unverified`. Rejected and ambiguous controls never create Kick truth; unresolved candidates remain blocking for interval completion. Label transitions reuse the existing annotation JSON fields and candidate timestamp. An existing unlinked Kick at the same timestamp is linked to the candidate rather than duplicated.
+Kickトグルは`confirmed`以外の状態を`confirmed`にし、`confirmed`を`unverified`にします。Rejectedおよびambiguous操作でKickの正解ラベルを作ることはありません。未解決候補がある間は区間を完了できません。ラベル遷移には既存のアノテーションJSON項目と候補時刻を再利用します。同じ時刻に既存の未リンクKickがあれば、複製せず候補にリンクします。
 
-## Waveform drag seek
+## 波形上のドラッグシーク
 
-Pointer handling prioritizes Shift-drag for interval selection, then a 14px playhead hit target for drag seek, then candidate marker selection, and finally regular click seek. Pointer Capture keeps the drag active; `pointercancel`/capture loss clears transient state. Seek time is derived from CSS canvas coordinates and the current zoom/pan range, clamped to the audio duration. AudioElement seeks are throttled to 100ms while dragging, with a final forced seek on pointer-up. A manual seek ends audition and interval-loop playback mode; the Shift interval gesture and view-range pan control remain available.
+ポインター操作の優先順位は、Shiftドラッグによる区間選択、ドラッグシーク用の14px再生ヘッド判定領域、候補マーカー選択、通常のクリックシークの順です。Pointer Captureでドラッグを継続し、`pointercancel`またはcapture喪失時に一時状態を解除します。シーク時刻はCSSキャンバス座標と現在のズーム/パン範囲から求め、音声の長さ内に制限します。ドラッグ中のAudioElementシークは100ms間隔に制限し、pointer-up時に最後のシークを必ず実行します。手動シークで試聴と区間ループ再生を終了します。Shiftによる区間選択ジェスチャーと表示範囲のパン操作は引き続き利用できます。
 
-## Verification
+## 検証
 
-- Python Island full suite: **58 passed**.
-- `mypy --strict src`: passed.
-- Ruff on changed Python server/test files: passed.
-- Node built-in control tests: **9 tests passed** (label toggles/persistence, duplicate linking, audition boundaries, pointer priority, seek clamp/throttle, pointer cancel and audition end).
-- Node JavaScript module syntax check: passed.
-- `git diff --check`: see final check.
-- A real browser and HTTP socket could not be used: no Chromium/Chrome/Firefox binary was available; the prior local bind attempt failed with `PermissionError: [Errno 1] Operation not permitted`.
+- Python Island全テスト: **58件成功**。
+- `mypy --strict src`: 成功。
+- 変更したPythonサーバー/テストファイルのRuff: 成功。
+- Node組み込み操作テスト: **9件成功**（ラベル切り替え/保持、重複リンク防止、試聴範囲、ポインター優先順位、シーク制限/間引き、pointer cancel、試聴終了）。
+- NodeによるJavaScriptモジュール構文確認: 成功。
+- `git diff --check`: 最終確認を参照。
+- 実ブラウザーとHTTPソケットは利用できませんでした。Chromium/Chrome/Firefox実行ファイルがなく、以前のローカルbindは`PermissionError: [Errno 1] Operation not permitted`で失敗しました。
 
-## Changed files
+## 変更ファイル
 
-- `python-island/src/python_island/kick_annotation_server.py` — HTTP Range parsing, bounded streaming, expected disconnect handling.
-- `python-island/tools/kick-annotator/index.html` — candidate auditions/actions and playhead drag seeking.
-- `python-island/tools/kick-annotator/annotation-controls.mjs` — UI label/audition/pointer helper logic.
-- `python-island/tests/test_kick_annotation_server.py` — Range response, abort and I/O error tests.
-- `python-island/tests/test_kick_annotator_controls.mjs` — local UI-control logic tests.
+- `python-island/src/python_island/kick_annotation_server.py` — HTTP Range解析、上限付きストリーミング、想定される切断の処理。
+- `python-island/tools/kick-annotator/index.html` — 候補の試聴/操作、再生ヘッドのドラッグシーク。
+- `python-island/tools/kick-annotator/annotation-controls.mjs` — UIラベル/試聴/ポインター補助ロジック。
+- `python-island/tests/test_kick_annotation_server.py` — Rangeレスポンス、中断、I/Oエラーテスト。
+- `python-island/tests/test_kick_annotator_controls.mjs` — ローカルUI操作ロジックのテスト。
 - `python-island/README.md`, `CURRENT_TASK.md`, `docs/CURRENT_STATE.md`, `docs/OPEN_ISSUES.md`, `docs/TEST_STRATEGY.md`.
 
-No annotation schema, saved file, candidate data, evaluator, detector, product Editor, API, Timeline, Blueprint, Project, Cloud, DB, Auth, or dependency was changed. Human audio annotation remains outstanding.
+アノテーションスキーマ、保存ファイル、候補データ、評価器、検出器、製品版Editor、API、Timeline、Blueprint、Project、Cloud、DB、Auth、依存関係は変更していません。人による音声アノテーションは未完了です。

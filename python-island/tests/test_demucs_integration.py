@@ -1,3 +1,5 @@
+import importlib.util
+
 import numpy as np
 import pytest
 
@@ -8,14 +10,16 @@ from python_island.separation import checkpoint_path, separate_stems
 
 @pytest.mark.integration
 def test_real_htdemucs_cpu_four_stems_and_repeatability(tmp_path, write_wav):
+    if importlib.util.find_spec("demucs") is None:
+        pytest.skip("Install the demucs-dev optional dependency for this development test")
     try:
-        checkpoint_path()
+        checkpoint_path("htdemucs")
     except Exception as error:
         pytest.skip(str(error))
     source = write_wav(tmp_path / "synthetic short test.wav", duration=2.0)
     audio = decode_audio(source, probe_audio(source))
-    first = separate_stems(audio, threads=4)
-    second = separate_stems(audio, threads=4)
+    first = separate_stems(audio, threads=4, engine="htdemucs")
+    second = separate_stems(audio, threads=4, engine="htdemucs")
     assert set(first) == {"drums", "bass", "vocals", "other"}
     for name in first:
         assert first[name].shape == audio.shape

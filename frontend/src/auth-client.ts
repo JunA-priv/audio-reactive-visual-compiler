@@ -6,14 +6,17 @@ export type AuthSession = {
 };
 
 const SESSION_KEY = 'arvc.local.auth.session.v1';
+const HOSTED_SUPABASE_HOST = /^[a-z0-9]{20}\.supabase\.co$/;
 
 function settings() {
   const url = import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/$/, '');
   const key = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
-  if (!url || !key) throw new Error('ローカルSupabaseのFrontend設定がありません。frontend/.env.localを確認してください。');
+  if (!url || !key) throw new Error('SupabaseのFrontend設定がありません。frontend/.env.localを確認してください。');
   const parsed = new URL(url);
-  if (parsed.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)) {
-    throw new Error('Frontendはloopback上のローカルSupabaseだけに接続できます。');
+  const local = parsed.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname) && (parsed.port === '' || parsed.port === '54321');
+  const hosted = parsed.protocol === 'https:' && HOSTED_SUPABASE_HOST.test(parsed.hostname) && !parsed.port;
+  if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash || (!local && !hosted)) {
+    throw new Error('Supabase URLはlocal loopbackまたはcanonical Hosted HTTPS project URLを指定してください。');
   }
   return { url, key };
 }

@@ -1,68 +1,68 @@
-# Step 7k-22 — Acoustic Kick Detection Quantitative Evaluation
+# Step 7k-22 — アコースティックKick検出の定量評価
 
-**Status: partial.** Local evaluation tooling and regression checks are implemented. No labeled acoustic drum recording was available, so acoustic precision/recall, timing accuracy, and real-source gate ablations remain unmeasured. The production detector was not changed.
+**状態：一部完了。** ローカル評価toolと回帰確認を実装しました。label付きアコースティックドラム録音がないため、アコースティック音源でのprecision/recall、時刻精度、実音源を用いたgate ablationは未測定です。本番detectorは変更していません。
 
-## Asset investigation
+## Asset調査
 
-Repository and local project search found three existing generated demo drum stems under `demo-assets/stems/demo1..demo3`. Their source documentation identifies the songs as user-created Suno demo tracks; it does not characterize them as acoustic drum recordings. No manual Kick onset labels or labeled Snare/Tom/Bass negative events were found. The existing Step 7k-11b comparison likewise has no song ground truth. These stems were therefore not scored or described as acoustic evaluation data.
+repositoryとローカルprojectを検索し、`demo-assets/stems/demo1..demo3`に既存のDemo drum stemが3つ見つかりました。source文書ではユーザー作成Suno demo trackとされ、アコースティックドラム録音とは説明されていません。手作業のKick onset labelやlabel付きSnare/Tom/Bass negative eventも見つかりませんでした。既存Step 7k-11b比較にも曲のground truthはありません。そのため、これらのstemを採点せず、アコースティック評価dataとも記しませんでした。
 
-No external audio was downloaded or transmitted. No model or weight was downloaded. The existing synthetic fixtures were used only to validate evaluation mechanics.
+外部音声のdownload/送信はしていません。model/weightもdownloadしていません。既存synthetic fixtureは評価処理の動作確認だけに使いました。
 
-## Evaluation tool
+## 評価tool
 
-Added `python-island/src/python_island/kick_evaluation.py` and the `kick-evaluation` package command. It accepts a local JSON manifest with relative paths to Demucs mixed `drums` stem, mono/stereo PCM16 44.1kHz WAVs, manually labeled `kickOnsetsMs`, provenance (`sourceType`, `license`), and optional categorized `negativeEvents`. The CLI does not run Demucs. Other WAV encodings/rates are rejected explicitly; no resampler or dependency was added.
+`python-island/src/python_island/kick_evaluation.py`とpackage command `kick-evaluation`を追加しました。ローカルJSON manifestを受け取り、Demucs混合`drums` stemへの相対path、mono/stereo PCM16 44.1kHz WAV、手作業でlabelした`kickOnsetsMs`、provenance（`sourceType`、`license`）、任意の分類済み`negativeEvents`を指定します。CLIはDemucsを実行しません。他のWAV encoding/sample rateは明示的に拒否し、resamplerやdependencyは追加していません。
 
-For each recording and aggregate, the tool reports:
+toolは録音ごと、および集計で以下を報告します。
 
-- one-to-one sorted onset matches using inclusive ±80ms by default; `--tolerance-ms` overrides the window;
-- TP/FP/FN, Precision/Recall/F1, matched pairs, unmatched timestamps, and signed/absolute onset error summaries;
-- categorized FP counts only where an FP overlaps a manually annotated negative event; otherwise it is `unlabeled`;
-- candidate score, low-band threshold, sub/body ratio, 80ms decay, local-maximum and 120ms merge outcomes, and nearest rejected candidate for each missed label;
-- six offline single-gate ablations: adaptive score, low-band floor, local maximum, sub/body ratio, decay, and merge interval.
+- 既定で境界を含む±80msを使った、時刻順の1対1 onset matching。窓幅は`--tolerance-ms`で変更可能。
+- TP/FP/FN、Precision/Recall/F1、match pair、未match timestamp、onset誤差の符号付き/絶対値summary。
+- FPが手動annotationしたnegative eventと重なる場合だけ分類別FP件数を算出。それ以外は`unlabeled`。
+- candidate score、low-band threshold、sub/body比、80ms decay、local maximum、120ms mergeの判定、各見逃しlabelに最も近い棄却候補。
+- 6種類のoffline単独gate ablation：adaptive score、low-band floor、local maximum、sub/body ratio、decay、merge interval。
 
-The diagnostic implementation mirrors the current detector formula locally and asserts that its baseline event timestamps equal `features.detect_kicks()` before reporting. Public Timeline/API output is not extended. The production `features.py` detector is unchanged.
+診断実装は現行detector式をローカルで再現し、結果を報告する前にbaseline event timestampが`features.detect_kicks()`と一致することをassertします。公開Timeline/API出力は拡張していません。本番`features.py` detectorも変更していません。
 
-Example invocation and manifest format are documented in `python-island/README.md`.
+実行例とmanifest形式は`python-island/README.md`に記載しました。
 
-## Evaluation results
+## 評価結果
 
-The tool was exercised on a two-hit synthetic PCM signal matching the existing synthetic Kick waveform. At ±80ms it reported TP=2, FP=0, FN=0, Precision=1.0, Recall=1.0, F1=1.0, with both detections 10ms early. This is a tool smoke test on synthetic data, not an acoustic accuracy result. Each single-gate ablation left this particular fixture unchanged; it does not establish which gate limits acoustic recall.
+既存synthetic Kick波形に合わせた2 hitのPCM signalでtoolを試しました。±80ms評価はTP=2、FP=0、FN=0、Precision=1.0、Recall=1.0、F1=1.0で、両検出とも10ms早めでした。これはsynthetic dataによるtool smoke testであり、アコースティック精度の結果ではありません。単独gate ablationはこのfixtureの出力を変えませんでしたが、アコースティックrecallを制限するgateの特定にはなりません。
 
-The prior Step 7k-11b synthetic suite remains the only broader labeled detector evaluation (its reported 10 TP / 0 FP / 0 FN is limited to constructed cases). The three demo counts from that report cannot be treated as real-song precision/recall or acoustic-drum evidence.
+前回Step 7k-11bのsynthetic suiteが、より広いlabel付きdetector評価として唯一残っています（報告された10 TP / 0 FP / 0 FNは合成caseに限られます）。同reportのDemo件数を実曲のprecision/recallやアコースティックドラムの根拠として扱うことはできません。
 
-## Frontend Binding separation
+## Frontend Bindingとの切り分け
 
-The `kick.events` path reads `kickEvents` and paired `kickEventStrengths` (legacy timelines without strengths use 1.0). Renderer event strength decays using at least 60ms or the Binding `releaseMs`. `evaluateBinding()` then gates at `threshold`, applies Attack/Release, and multiplies by Binding `strength`. Event Effects also use `boundFeature()`, which returns zero at or below threshold.
+`kick.events`経路は`kickEvents`と対応する`kickEventStrengths`を読み込みます（strengthのない旧Timelineでは1.0を使います）。Rendererはevent strengthを、最低60msまたはBindingの`releaseMs`で減衰させます。次に`evaluateBinding()`が`threshold`でgateし、Attack/Releaseを適用してBinding `strength`を乗算します。Event Effectも`boundFeature()`を使い、threshold以下は0になります。
 
-Added a renderer regression test proving an event strength of 0.2 is visible with threshold 0.1, becomes zero at thresholds 0.2 and 0.25, and is halved when Binding strength changes from 0.9 to 0.45. Existing tests cover decay after the event. This separates a missing detector event from a detected but attenuated Binding response. It does not measure browser pixels or subjective visual prominence. Song-bound default Effects are not evidence of Kick response; only Effects configured for `kick.events` are relevant.
+event strength 0.2がthreshold 0.1では表示され、threshold 0.2/0.25では0となり、Binding strengthを0.9から0.45へ変えると半減することを確認するrenderer回帰testを追加しました。既存testではevent後の減衰を確認します。これにより、detector event自体がない場合と検出済みeventがBindingで弱められる場合を区別できます。browser pixelや主観的な視認性は測定しません。曲にBindingされた既定EffectはKick応答の証拠ではなく、`kick.events`に設定したEffectだけが該当します。
 
-## Recommended next action
+## 推奨する次の作業
 
-Keep the detector unchanged until the tool is run on a permissioned acoustic kit set with manually labeled Kick onsets and categorized low-frequency negatives. Include soft/hard hits, varied Kick tuning and decay, Kick+Snare/Tom overlap, and negative-only passages. Keep at least one recording held out from any tuning. Compare baseline and each single-gate ablation using per-recording and aggregate metrics plus timing-error distribution. Only then decide whether a gate needs the smallest adjustment; preserve synthetic Snare/Tom/Bass and double-Kick regressions and retain Timeline v1 fields.
+許可されたacoustic kit setに手動Kick onset labelと分類済み低周波negativeを付けてtoolを実行するまで、detectorは変更しません。弱/強hit、異なるKick調律/減衰、Kick+Snare/Tom重複、negativeのみの区間を含めます。少なくとも1録音はtuningから除外してhold-outにします。baselineと各単独gate ablationを録音別/集計指標および時刻誤差分布で比較します。その後に限りgateの最小調整が必要か判断します。synthetic Snare/Tom/Bass、double-Kick回帰を維持し、Timeline v1 fieldも保持します。
 
-For a reported weak visual response, inspect event existence/strength and Binding output at the same timestamp before attributing the issue to detection.
+視覚応答が弱いと報告された場合、検出が原因と判断する前に同timestampのevent有無/strengthとBinding出力を確認します。
 
-## Tests and checks
+## Testと確認
 
-- Python full suite: **40 passed**.
-- Python `mypy --strict src`: passed.
-- Ruff on the new evaluator and tests: passed.
-- Ruff across existing `src tests` with existing E501 line-length findings excluded: passed.
-- Default Ruff across the whole Python tree reports existing E501 findings in unchanged `cli.py`, `features.py`, `pipeline.py`, and `tests/test_features.py`; no E501 remains in the new evaluator/tests.
-- Frontend: **160 tests passed**; typecheck, lint, build passed.
-- `git diff --check`: passed.
+- Python全suite：**40 test成功**。
+- Python `mypy --strict src`：成功。
+- 新しいevaluatorとtestに対するRuff：成功。
+- 既存E501行長違反を除外した`src tests`全体へのRuff：成功。
+- Python tree全体への既定Ruffは、未変更の`cli.py`、`features.py`、`pipeline.py`、`tests/test_features.py`に既存E501違反を報告します。新しいevaluator/testにE501はありません。
+- Frontend：**160 test成功**。typecheck、lint、buildも成功。
+- `git diff --check`：成功。
 
-`mypy --strict src tests` still reports 30 pre-existing missing-annotation/TypedDict errors across `tests/test_features.py`, `tests/test_audio.py`, `tests/conftest.py`, `tests/test_demucs_integration.py`, and `tests/test_cli.py`; no such errors originate in the new evaluator tests. The evaluator source passes strict mypy. No existing tests were removed, skipped, or disabled.
+`mypy --strict src tests`は、`tests/test_features.py`、`tests/test_audio.py`、`tests/conftest.py`、`tests/test_demucs_integration.py`、`tests/test_cli.py`にあるannotation不足/TypedDictの既存errorを30件報告します。新evaluator test由来のerrorはありません。evaluator sourceはstrict mypyを通過しました。既存testは削除/skip/無効化していません。
 
-## Changed files
+## 変更ファイル
 
-- `python-island/src/python_island/kick_evaluation.py`: offline matching, gate diagnostics, ablations, manifest WAV reader, CLI.
-- `python-island/tests/test_kick_evaluation.py`: matching boundary/duplicate tests, baseline parity, deterministic evaluation, manifest and merge tests.
-- `python-island/pyproject.toml`: local CLI entry point.
-- `python-island/README.md`: manifest and local usage documentation.
-- `frontend/src/editor-renderer.test.ts`: Binding threshold/strength response regression.
-- `docs/TEST_STRATEGY.md`, `docs/OPEN_ISSUES.md`, `docs/CURRENT_STATE.md`: evaluation tooling and outstanding real-data limitation.
-- `CURRENT_TASK.md`: Step 7k-22 status summary.
-- This report.
+- `python-island/src/python_island/kick_evaluation.py`：offline matching、gate診断、ablation、manifest WAV reader、CLI。
+- `python-island/tests/test_kick_evaluation.py`：matching境界/重複、baseline一致、決定的評価、manifest、mergeのtest。
+- `python-island/pyproject.toml`：ローカルCLI entry point。
+- `python-island/README.md`：manifestとローカル利用手順。
+- `frontend/src/editor-renderer.test.ts`：Binding threshold/strength応答の回帰test。
+- `docs/TEST_STRATEGY.md`、`docs/OPEN_ISSUES.md`、`docs/CURRENT_STATE.md`：評価toolと実data上の未解決制約。
+- `CURRENT_TASK.md`：Step 7k-22状況概要。
+- 本report。
 
-No detector algorithm, Timeline v1, Audio Analyze API, Blueprint/Project/Cloud contract, Demucs model/weights, database, authentication, or dependency was changed. No hosted operation or external API was used. Real acoustic precision/recall and browser visual response remain unconfirmed.
+detector algorithm、Timeline v1、Audio Analyze API、Blueprint/Project/Cloud contract、Demucs model/weights、database、authentication、dependencyは変更していません。Hosted operationや外部APIは使っていません。実アコースティック音源でのprecision/recallとbrowserでの視覚応答は未確認です。

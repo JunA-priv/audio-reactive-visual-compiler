@@ -8,8 +8,8 @@ BEGIN
   CREATE ROLE arvc_ai_budget NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 END
 $role$;
--- PostgreSQL may grant the migration role membership in a newly-created role;
--- remove that authority so postgres is not an implicit role administrator.
+-- Remove the postgres-granted link. Supabase's protected bootstrap membership
+-- is non-inheriting and non-settable and is not an application access path.
 REVOKE arvc_ai_budget FROM postgres;
 
 CREATE TABLE public.ai_entitlements (

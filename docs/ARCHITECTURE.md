@@ -28,7 +28,7 @@ FACT（Step 7k-11d）：`ink-diffusion` is evaluated as bounded Canvas 2D filled
 
 FACT（Step 7d local-only）：FrontendはSupabase Auth RESTでログイン/更新/ログアウトし、Go APIのProject CRUD・Asset APIを利用する。音源/画像はCloud Envelope v1 asset referencesとして保存し、Go Asset endpoint経由でupload/downloadする。ログイン不要のEditor、`.arvproj`、WebM経路は維持。実ブラウザ統合およびHosted構成は未検証。
 
-FACT（Step 7j local-only）：`/app`で元音源をブラウザ内再生・範囲選択し、Web Audio decode/OfflineAudioContextで選択区間を44.1kHz stereo PCM16 WAVへ変換する。元音源全体は解析APIへ送らない。認証付きGo `POST /api/v1/audio/analyze`は固定Python Island CLIをprivate temp fileから起動し、CPU htdemucsを実行、結果を既存Timeline/Summary validatorで検証して返す。Frontendは解析成功後にだけcrop clipと対応TimelineをEditorへcommitし、既存Blueprint generator・Project/Asset・Preview/WebM経路へ同じclip/Timelineを渡す。このAPIはloopback/local issuer専用でHosted CPU executionは未実装。
+FACT（Step 7j / Step 7k-36 local-only）：`/app`で元音源をブラウザ内再生・範囲選択し、Web Audio decode/OfflineAudioContextで選択区間を44.1kHz stereo PCM16 WAVへ変換する。元音源全体は解析APIへ送らない。認証付きGo `POST /api/v1/audio/analyze`は固定Python Island CLIをprivate temp fileから起動し、既定CPU `scnet_standard`を実行、結果を既存Timeline/Summary validatorで検証して返す。Frontendは解析成功後にだけcrop clipと対応TimelineをEditorへcommitし、既存Blueprint generator・Project/Asset・Preview/WebM経路へ同じclip/Timelineを渡す。このAPIはloopback/local issuer専用でHosted CPU executionは未実装。Demucsは開発者が手動CLIで`--engine htdemucs`を指定した場合のみ比較用途に使う。
 
 FACT（Step 7h-3.5 local-only）：匿名`/demo`は3つの静的Track定義からMP3と対応Timeline v1 JSONを選択し、`loadDemoTimeline`のruntime validationを通したものだけ再生する。Timeline fetch競合はcleanup flagで無効化し、楽曲切替時は音声を停止・0秒へ戻してTimeline/Blueprintを初期化する。Renderer clockは選択音声のcurrentTimeを読み、timeline durationと音源metadata durationの差100ms以内を確認する。Python CLIの任意`--stems-dir`は特徴抽出とstem WAV保存を同じDemucs推論から実行する。Frontendには音源MP3とTimeline JSONのみを置く。Source/stem/生成内部JSON/モデル重みは配信またはGit管理しない。公開利用可否・Hosted配信・ブラウザ実機は別確認。
 
@@ -36,7 +36,7 @@ PROPOSED：Cloudflare Pages/R2、Cloud Run Services/Jobs、Hosted Supabase。ロ
 
 FACT（Step 5）：ローカルEcho API `GET /healthz` と`POST /api/v1/blueprints/generate`を実装。既存Editor Blueprint v1に独立検証を適用し、Fixtureを既定モードとする。Geminiモードは明示的な環境設定時のみ。Step 7bでProjectDocument v1 wrapperとローカルCRUDを追加した。全体API schema、クラウド構成、素材保存、Frontend cloud UIは未確定/未実装。
 
-FACT（Python Island）：CLIはローカルMP3/WAVをffprobe検査後FFmpegで44.1kHz stereo float PCMにdecodeし、CPU-only Demucs htdemucsで4 Stemを分離、10ms hopのfeaturesとMusic SummaryをJSON出力する。任意`--stems-dir`で同じ分離結果から非上書きPCM16 stereo WAVを保存する。モデル設定はインストール済みDemucs package、weightsはhash検証済み既存cacheからのみ取得し、implicit model network downloadを無効化。FFmpeg更新状態とweight licensingは未解決で、非信頼音源/公開処理には未承認。
+FACT（Python Island / Step 7k-36）：CLIはローカルMP3/WAVをffprobe検査後FFmpegで44.1kHz stereo float PCMにdecodeし、既定CPU SCNet standardで4 Stemを分離、10ms hopの既存featuresとMusic SummaryをJSON出力する。固定commit由来SCNet inference codeとmodel configをPython packageへ含め、checkpointはSHA-256/size検証、`weights_only=True`、strict load後に使う。任意`--stems-dir`で同じ分離結果から非上書きPCM16 stereo WAVを保存する。Demucs htdemucsは`demucs-dev` optional extraと手動`--engine htdemucs`による開発専用。両モデルともweightsは既存cacheからのみ読み、implicit model network downloadをしない。Demucs weightsは公開依存・配布物に含めない。
 # Step 7k-30 — WebM / MP4 export
 
 FACT / PARTIAL: WebM and MP4 share the existing Canvas capture, audio mix, media clock, and `renderEditorFrame` path. MP4 is restricted to browser-declared H.264/AVC support, plus AAC LC when audio is included; each combination is checked independently with `MediaRecorder.isTypeSupported()`. Recorder MIME and the generated Blob's MP4 `ftyp` box are checked before using an `.mp4` filename. Unsupported MP4 does not fall back to WebM. Real browser codec availability, generated MP4 playback, and audio synchronization remain unverified.

@@ -15,13 +15,73 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import numpy as np
 
 STEMS = ("drums", "bass", "vocals", "other")
 GATE_MODES = ("off", "soft", "middle", "hard")
-EXPECTED_SCNET_SHA256 = "1bc0d1abb20bfdf966dcd07637bafd03e4bc13653d09ef18bc9b3e342eafe2aa"
-EXPECTED_SCNET_BYTES = 42_434_986
+SERIES_FEATURES = (
+    "bassEnvelope",
+    "drumEnergy",
+    "vocalsEnvelope",
+    "otherEnvelope",
+    "musicEnergy",
+)
+CSV_FIELDS = (
+    "gateMode",
+    "feature",
+    "demucsCount",
+    "scnetCount",
+    "matchedWithin80ms",
+    "demucsOnly",
+    "scnetOnly",
+    "medianAbsOffsetMs",
+    "p90AbsOffsetMs",
+    "maxAbsOffsetMs",
+    "matchRate",
+    "demucsMean",
+    "scnetMean",
+    "meanAbsoluteDifference",
+    "normalizedMeanAbsoluteDifference",
+    "pearsonCorrelation",
+    "peakTimeDeltaMs",
+    "comparisonStatus",
+)
+EXPECTED_SCNET_SHA256 = "f8aff3bc8dd816aad392800d9d69519add719a2fbd22550af6f8cb2138d25ff5"
+EXPECTED_SCNET_BYTES = 42_434_545
+
+
+def is_official_scnet_origin(origin: str) -> bool:
+    """Accept only GitHub URLs for starrytong/SCNet, ignoring case in names."""
+    value = origin.strip()
+    if value.startswith("git@"):
+        host_and_path = value[4:].split(":", 1)
+        if len(host_and_path) != 2:
+            return False
+        host, path = host_and_path
+        if host.casefold() != "github.com":
+            return False
+    else:
+        try:
+            parsed = urlsplit(value)
+            if (
+                parsed.scheme.casefold() != "https"
+                or parsed.netloc.casefold() != "github.com"
+                or parsed.query
+                or parsed.fragment
+            ):
+                return False
+            path = parsed.path
+        except ValueError:
+            return False
+
+    path = path.rstrip("/")
+    if path.casefold().endswith(".git"):
+        path = path[:-4]
+    if path.startswith("/"):
+        path = path[1:]
+    return path.casefold() == "starrytong/scnet"
 
 
 def sha256_file(path: Path) -> str:
@@ -79,6 +139,8 @@ def validate_stems(stems: dict[str, np.ndarray], reference: np.ndarray) -> None:
 
 
 def _series_stats(values: np.ndarray) -> dict[str, float | int]:
+    if not np.isfinite(values).all():
+        raise ValueError("Feature series contains NaN or Infinity")
     if values.size == 0:
         return {"count": 0, "min": 0.0, "median": 0.0, "p90": 0.0, "max": 0.0, "mean": 0.0}
     return {
@@ -182,6 +244,117 @@ def timeline_summary(timeline: dict[str, Any]) -> dict[str, Any]:
     return {"events": event_summary, "series": series_summary}
 
 
+def _compare_series(
+    left: list[dict[str, Any]], right: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Compare aligned timeline points; undefined or absent metrics stay empty."""
+    result = {
+        "demucsCount": len(left),
+        "scnetCount": len(right),
+        "demucsMean": None,
+        "scnetMean": None,
+        "meanAbsoluteDifference": None,
+        "normalizedMeanAbsoluteDifference": None,
+        "pearsonCorrelation": None,
+        "peakTimeDeltaMs": None,
+        "comparisonStatus": "empty" if not left and not right else "misaligned",
+    }
+    if not left or not right or len(left) != len(right):
+        return result
+    try:
+        left_times = [int(point["timeMs"]) for point in left]
+        right_times = [int(point["timeMs"]) for point in right]
+        a = np.asarray([float(point["value"]) for point in left], dtype=np.float64)
+        b = np.asarray([float(point["value"]) for point in right], dtype=np.float64)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        result["comparisonStatus"] = "missing_or_invalid_values"
+        return result
+    if not np.isfinite(a).all() or not np.isfinite(b).all():
+        raise ValueError("Feature series contains NaN or Infinity")
+    if left_times != right_times:
+        return result
+
+    mae = float(np.mean(np.abs(a - b)))
+    denominator = float(np.mean(np.abs(a)))
+    correlation: float | None = None
+    if len(a) > 1 and np.std(a) > 0 and np.std(b) > 0:
+        correlation = round(float(np.corrcoef(a, b)[0, 1]), 15)
+    if correlation is not None and not math.isfinite(correlation):
+        correlation = None
+    result.update(
+        {
+            "demucsMean": float(np.mean(a)),
+            "scnetMean": float(np.mean(b)),
+            "meanAbsoluteDifference": mae,
+            "normalizedMeanAbsoluteDifference": mae / denominator if denominator > 0 else None,
+            "pearsonCorrelation": correlation,
+            "peakTimeDeltaMs": left_times[int(np.argmax(b))] - left_times[int(np.argmax(a))],
+            "comparisonStatus": "ok",
+        }
+    )
+    return result
+
+
+def build_series_comparisons(
+    timelines: dict[str, dict[str, dict[str, Any]]],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    return {
+        gate: {
+            feature: _compare_series(
+                timelines["demucs"][gate].get(feature, []),
+                timelines["scnet"][gate].get(feature, []),
+            )
+            for feature in SERIES_FEATURES
+        }
+        for gate in GATE_MODES
+    }
+
+
+def build_feature_rows(
+    summaries: dict[str, dict[str, Any]],
+    event_comparisons: dict[str, dict[str, Any]],
+    series_comparisons: dict[str, dict[str, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Build stable CSV records for all gates, events, and timeline series."""
+    rows: list[dict[str, Any]] = []
+    for gate in GATE_MODES:
+        for name in ("kickEvents", "snareEvents"):
+            comparison = event_comparisons[gate][name]
+            demucs_count = summaries["demucs"][gate]["events"][name]["count"]
+            scnet_count = summaries["scnet"][gate]["events"][name]["count"]
+            maximum_count = max(demucs_count, scnet_count)
+            error_stats = comparison["absoluteErrorMs"]
+            rows.append(
+                {
+                    "gateMode": gate,
+                    "feature": name,
+                    "demucsCount": demucs_count,
+                    "scnetCount": scnet_count,
+                    "matchedWithin80ms": comparison["matched"],
+                    "demucsOnly": comparison["leftOnly"],
+                    "scnetOnly": comparison["rightOnly"],
+                    "medianAbsOffsetMs": error_stats["median"],
+                    "p90AbsOffsetMs": error_stats["p90"],
+                    "maxAbsOffsetMs": error_stats["max"],
+                    "matchRate": comparison["matched"] / maximum_count
+                    if maximum_count
+                    else None,
+                    "comparisonStatus": "ok",
+                }
+            )
+        for feature in SERIES_FEATURES:
+            comparison = series_comparisons[gate][feature]
+            rows.append({"gateMode": gate, "feature": feature, **comparison})
+    return rows
+
+
+def write_feature_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS, extrasaction="raise")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _load_existing_features(repo_root: Path) -> tuple[Any, Any, Any]:
     src = repo_root / "python-island" / "src"
     sys.path.insert(0, str(src))
@@ -212,12 +385,8 @@ def _load_official_separator(
             text=True,
         )
         .stdout.strip()
-        .lower()
     )
-    if origin.rstrip("/") not in (
-        "https://github.com/starrytong/scnet",
-        "git@github.com:starrytong/scnet.git",
-    ):
+    if not is_official_scnet_origin(origin):
         raise ValueError(f"Unexpected SCNet source origin: {origin}")
     commit = subprocess.run(
         ["git", "-C", str(repo), "rev-parse", "HEAD"],
@@ -234,7 +403,6 @@ def _load_official_separator(
     torch.set_num_interop_threads(1)
 
     import yaml
-    from ml_collections import ConfigDict
     from scnet.inference import Seperator
     from scnet.SCNet import SCNet
 
@@ -242,9 +410,31 @@ def _load_official_separator(
     checkpoint_path = checkpoint.expanduser().resolve(strict=True)
     with config_path.open(encoding="utf-8") as stream:
         config_data = yaml.safe_load(stream)
-    model = SCNet(**ConfigDict(config_data["model"]))
+    model = SCNet(**config_data["model"])
     model.eval()
-    separator = Seperator(model, str(checkpoint_path))
+
+    # SCNet's upstream load_model delegates to torch.load without spelling out
+    # weights_only. Load the tensor-only state explicitly in safe mode, then
+    # initialize the official inference wrapper without invoking that loader.
+    checkpoint_data = torch.load(
+        checkpoint_path, map_location="cpu", weights_only=True
+    )
+    if not isinstance(checkpoint_data, dict) or not isinstance(
+        checkpoint_data.get("best_state"), dict
+    ):
+        raise ValueError("SCNet checkpoint must contain a tensor best_state mapping")
+    state = checkpoint_data["best_state"]
+    if any(not isinstance(value, torch.Tensor) for value in state.values()):
+        raise ValueError("SCNet best_state must contain only tensors")
+    state = {
+        (key[7:] if key.startswith("module.") else key): value
+        for key, value in state.items()
+    }
+    model.load_state_dict(state, strict=True)
+    separator = Seperator.__new__(Seperator)
+    separator.separator = model
+    separator.device = torch.device("cpu")
+    model.to(separator.device)
     if separator.device.type != "cpu":
         raise RuntimeError("SCNet inference did not select CPU")
     return separator, commit
@@ -325,7 +515,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise ValueError(f"Saved SCNet {name} WAV has unexpected sample rate {sr}")
     validate_stems(scnet_stems, mix)
 
-    feature_rows: list[dict[str, Any]] = []
     summaries: dict[str, dict[str, Any]] = {"demucs": {}, "scnet": {}}
     all_timelines: dict[str, dict[str, dict[str, Any]]] = {"demucs": {}, "scnet": {}}
     for model_name, stems in (("demucs", reference_stems), ("scnet", scnet_stems)):
@@ -334,52 +523,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             summary = timeline_summary(timeline)
             summaries[model_name][gate] = summary
             all_timelines[model_name][gate] = timeline
-    for gate in GATE_MODES:
-        kick_compare = match_events(
-            all_timelines["demucs"][gate].get("kickEvents", []),
-            all_timelines["scnet"][gate].get("kickEvents", []),
-        )
-        snare_compare = match_events(
-            all_timelines["demucs"][gate].get("snareEvents", []),
-            all_timelines["scnet"][gate].get("snareEvents", []),
-        )
-        for event_name, event_compare in (
-            ("kickEvents", kick_compare),
-            ("snareEvents", snare_compare),
-        ):
-            feature_rows.append(
-                {
-                    "gateMode": gate,
-                    "feature": event_name,
-                    "demucsCount": summaries["demucs"][gate]["events"][event_name]["count"],
-                    "scnetCount": summaries["scnet"][gate]["events"][event_name]["count"],
-                    "matchedWithin80ms": event_compare["matched"],
-                    "demucsOnly": event_compare["leftOnly"],
-                    "scnetOnly": event_compare["rightOnly"],
-                    "medianAbsOffsetMs": event_compare["absoluteErrorMs"]["median"],
-                }
-            )
-        for feature in (
-            "bassEnvelope",
-            "drumEnergy",
-            "vocalsEnvelope",
-            "otherEnvelope",
-            "musicEnergy",
-        ):
-            feature_rows.append(
-                {
-                    "gateMode": gate,
-                    "feature": feature,
-                    "demucsCount": summaries["demucs"][gate]["series"][feature]["count"],
-                    "scnetCount": summaries["scnet"][gate]["series"][feature]["count"],
-                    "demucsMean": summaries["demucs"][gate]["series"][feature]["mean"],
-                    "scnetMean": summaries["scnet"][gate]["series"][feature]["mean"],
-                    "meanAbsoluteDifference": _mean_series_difference(
-                        all_timelines["demucs"][gate].get(feature, []),
-                        all_timelines["scnet"][gate].get(feature, []),
-                    ),
-                }
-            )
+    event_comparisons = {
+        gate: {
+            "kickEvents": match_events(
+                all_timelines["demucs"][gate].get("kickEvents", []),
+                all_timelines["scnet"][gate].get("kickEvents", []),
+            ),
+            "snareEvents": match_events(
+                all_timelines["demucs"][gate].get("snareEvents", []),
+                all_timelines["scnet"][gate].get("snareEvents", []),
+            ),
+        }
+        for gate in GATE_MODES
+    }
+    series_comparisons = build_series_comparisons(all_timelines)
+    feature_rows = build_feature_rows(
+        summaries, event_comparisons, series_comparisons
+    )
 
     result = {
         "schemaVersion": 1,
@@ -422,19 +582,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "scnet": stem_metrics(scnet_stems, mix),
         },
         "featureTimelines": summaries,
-        "eventComparisons": {
-            gate: {
-                "kickEvents": match_events(
-                    all_timelines["demucs"][gate].get("kickEvents", []),
-                    all_timelines["scnet"][gate].get("kickEvents", []),
-                ),
-                "snareEvents": match_events(
-                    all_timelines["demucs"][gate].get("snareEvents", []),
-                    all_timelines["scnet"][gate].get("snareEvents", []),
-                ),
-            }
-            for gate in GATE_MODES
-        },
+        "eventComparisons": event_comparisons,
+        "featureSeriesComparisons": series_comparisons,
         "accuracyMetrics": None,
         "accuracyReason": (
             "No confirmed human onset labels are supplied by this model-to-model comparison."
@@ -443,24 +592,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     (output_dir / "comparison.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8"
     )
-    with (output_dir / "features.csv").open("w", newline="", encoding="utf-8") as stream:
-        columns = list(feature_rows[0]) if feature_rows else []
-        writer = csv.DictWriter(stream, fieldnames=columns)
-        writer.writeheader()
-        writer.writerows(feature_rows)
+    write_feature_csv(output_dir / "features.csv", feature_rows)
     return result
-
-
-def _mean_series_difference(
-    left: list[dict[str, Any]], right: list[dict[str, Any]]
-) -> float | None:
-    if len(left) != len(right) or not left:
-        return None
-    if any(int(a["timeMs"]) != int(b["timeMs"]) for a, b in zip(left, right, strict=True)):
-        return None
-    a = np.asarray([float(point["value"]) for point in left], dtype=np.float64)
-    b = np.asarray([float(point["value"]) for point in right], dtype=np.float64)
-    return float(np.mean(np.abs(a - b)))
 
 
 def _directory_size(path: Path) -> int:

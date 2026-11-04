@@ -1,6 +1,7 @@
 package audioanalysis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,9 +15,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/audiobudget"
+	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/authn"
 	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/service"
 	"github.com/labstack/echo/v5"
 )
@@ -28,6 +32,7 @@ const (
 	maxTimelineJSON = 8 << 20
 	maxSummaryJSON  = 1 << 20
 	maxMetadataJSON = 1 << 20
+	orphanTempAge   = 15 * time.Minute
 )
 
 type WAVInfo struct {
@@ -54,18 +59,21 @@ type Config struct {
 	FFprobeExecutable string
 	TempDirectory     string
 	Timeout           time.Duration
+	Threads           int
 	Prober            Prober
 	Runner            Runner
 	Logger            *slog.Logger
+	Admission         audiobudget.Store
 }
 
 type Handler struct {
-	timeout time.Duration
-	tempDir string
-	prober  Prober
-	runner  Runner
-	logger  *slog.Logger
-	slots   chan struct{}
+	timeout   time.Duration
+	tempDir   string
+	prober    Prober
+	runner    Runner
+	logger    *slog.Logger
+	admission audiobudget.Store
+	slots     chan struct{}
 }
 
 type response struct {
@@ -77,6 +85,7 @@ type response struct {
 type commandRunner struct {
 	executable string
 	workDir    string
+	threads    int
 }
 
 type ffprobe struct{ executable string }
@@ -84,6 +93,12 @@ type ffprobe struct{ executable string }
 func NewHandler(cfg Config) (*Handler, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = DefaultTimeout
+	}
+	if cfg.Threads == 0 {
+		cfg.Threads = 4
+	}
+	if cfg.Threads < 1 || cfg.Threads > 16 {
+		return nil, errors.New("audio analysis threads must be between 1 and 16")
 	}
 	if cfg.Prober == nil {
 		probePath := cfg.FFprobeExecutable
@@ -116,12 +131,44 @@ func NewHandler(cfg Config) (*Handler, error) {
 		if err != nil || !workInfo.IsDir() {
 			return nil, errors.New("Python Island working directory is unavailable")
 		}
-		cfg.Runner = commandRunner{executable: executable, workDir: workDir}
+		cfg.Runner = commandRunner{executable: executable, workDir: workDir, threads: cfg.Threads}
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	return &Handler{timeout: cfg.Timeout, tempDir: cfg.TempDirectory, prober: cfg.Prober, runner: cfg.Runner, logger: cfg.Logger, slots: make(chan struct{}, 1)}, nil
+	if strings.TrimSpace(cfg.TempDirectory) == "" {
+		cfg.TempDirectory = os.TempDir()
+	}
+	cleanupOrphanedAnalysisTemps(cfg.TempDirectory, time.Now())
+	return &Handler{timeout: cfg.Timeout, tempDir: cfg.TempDirectory, prober: cfg.Prober, runner: cfg.Runner, logger: cfg.Logger, admission: cfg.Admission, slots: make(chan struct{}, 1)}, nil
+}
+
+// cleanupOrphanedAnalysisTemps removes only this feature's old private temp
+// directories. The age threshold exceeds the 10-minute analysis deadline plus
+// cancellation grace, so another live API process will not lose active work.
+func cleanupOrphanedAnalysisTemps(root string, now time.Time) int {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	cutoff := now.Add(-orphanTempAge)
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "arvc-audio-analysis-") && !strings.HasPrefix(entry.Name(), "arvc-audio-job-upload-") {
+			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.IsDir() || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if os.RemoveAll(filepath.Join(root, entry.Name())) == nil {
+			removed++
+		}
+	}
+	return removed
 }
 
 func (h *Handler) Register(e *echo.Echo, authMiddleware func(echo.HandlerFunc) echo.HandlerFunc) {
@@ -175,7 +222,39 @@ func (w *requestStatusWriter) Write(body []byte) (int, error) {
 func (w *requestStatusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (h *Handler) analyze(c *echo.Context) error {
+	return h.analyzeWithAdmission(c, h.admission)
+}
+
+func (h *Handler) analyzeWithAdmission(c *echo.Context, admission audiobudget.Store) error {
 	r := c.Request()
+	principal, authenticated := authn.PrincipalFrom(r.Context())
+	if !authenticated {
+		return writeError(c, http.StatusUnauthorized, "unauthorized", "valid bearer token required")
+	}
+	if admission == nil {
+		return writeError(c, http.StatusServiceUnavailable, "analysis_control_unavailable", "audio analysis is temporarily unavailable")
+	}
+	reservation, err := admission.Reserve(r.Context(), principal.Subject)
+	if err != nil {
+		if errors.Is(err, audiobudget.ErrNotEntitled) {
+			drainRejectedEntitlementBody(c)
+		}
+		return admissionError(c, err)
+	}
+	started := false
+	settled := false
+	defer func() {
+		if started && !settled {
+			h.settleDetached(admission, reservation.ID, audiobudget.StateFailed, "handler_aborted")
+		}
+		if !started {
+			releaseCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := admission.Release(releaseCtx, reservation.ID); err != nil {
+				h.logger.WarnContext(r.Context(), "audio analysis reservation release failed", "classification", "admission_release_failed")
+			}
+		}
+	}()
 	select {
 	case h.slots <- struct{}{}:
 		defer func() { <-h.slots }()
@@ -225,16 +304,36 @@ func (h *Handler) analyze(c *echo.Context) error {
 	if err := os.Mkdir(outputDir, 0700); err != nil {
 		return writeError(c, http.StatusInternalServerError, "analysis_unavailable", "audio analysis could not start")
 	}
-	started := time.Now()
+	if err := admission.Start(ctx, reservation.ID); err != nil {
+		return admissionError(c, err)
+	}
+	started = true
+	settle := func(state, safeCode string) error {
+		if err := h.settleDetached(admission, reservation.ID, state, safeCode); err != nil {
+			return writeError(c, http.StatusServiceUnavailable, "analysis_control_unavailable", "audio analysis is temporarily unavailable")
+		}
+		settled = true
+		return nil
+	}
+	analysisStarted := time.Now()
 	if err := h.runner.Analyze(ctx, inputPath, outputDir, kickGateMode); err != nil {
-		elapsed := time.Since(started).Milliseconds()
+		elapsed := time.Since(analysisStarted).Milliseconds()
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			if settleErr := settle(audiobudget.StateFailed, "timeout"); settleErr != nil {
+				return settleErr
+			}
 			h.logger.WarnContext(r.Context(), "audio analysis failed", "classification", "timeout", "elapsed_ms", elapsed)
 			return writeError(c, http.StatusGatewayTimeout, "analysis_timeout", "audio analysis timed out")
 		}
 		if errors.Is(ctx.Err(), context.Canceled) {
+			if settleErr := settle(audiobudget.StateCanceled, "canceled"); settleErr != nil {
+				return settleErr
+			}
 			h.logger.InfoContext(r.Context(), "audio analysis canceled", "elapsed_ms", elapsed)
 			return writeError(c, 499, "analysis_canceled", "audio analysis was canceled")
+		}
+		if settleErr := settle(audiobudget.StateFailed, "analysis_failed"); settleErr != nil {
+			return settleErr
 		}
 		attrs := []any{"classification", "python_process_error", "stage", "python", "elapsed_ms", elapsed, "audio_bytes", inputBytes}
 		attrs = append(attrs, pythonProcessDetails(err)...)
@@ -243,11 +342,53 @@ func (h *Handler) analyze(c *echo.Context) error {
 	}
 	result, err := readAndValidateResult(outputDir, info.DurationSeconds, inputBytes)
 	if err != nil {
-		h.logger.WarnContext(r.Context(), "audio analysis output rejected", "classification", "invalid_analysis_output", "elapsed_ms", time.Since(started).Milliseconds())
+		if settleErr := settle(audiobudget.StateFailed, "invalid_output"); settleErr != nil {
+			return settleErr
+		}
+		h.logger.WarnContext(r.Context(), "audio analysis output rejected", "classification", "invalid_analysis_output", "elapsed_ms", time.Since(analysisStarted).Milliseconds())
 		return writeError(c, http.StatusBadGateway, "invalid_analysis_output", "audio analysis returned invalid data")
 	}
-	h.logger.InfoContext(r.Context(), "audio analysis completed", "elapsed_ms", time.Since(started).Milliseconds(), "duration_ms", int64(result.durationMs), "timeline_points", result.timelinePoints, "kick_events", result.kickEvents)
+	if settleErr := settle(audiobudget.StateSucceeded, ""); settleErr != nil {
+		return settleErr
+	}
+	h.logger.InfoContext(r.Context(), "audio analysis completed", "elapsed_ms", time.Since(analysisStarted).Milliseconds(), "duration_ms", int64(result.durationMs), "timeline_points", result.timelinePoints, "kick_events", result.kickEvents)
 	return c.JSON(http.StatusOK, result.response)
+}
+
+// drainRejectedEntitlementBody lets a streaming reverse proxy finish writing a
+// bounded authenticated request before the early 403 closes the HTTP/1
+// connection. Unauthenticated requests never reach this handler, and the
+// byte limit keeps rejection from becoming an unbounded body read.
+func drainRejectedEntitlementBody(c *echo.Context) {
+	r := c.Request()
+	if r.ContentLength > MaxRequestBytes {
+		return
+	}
+	r.Body = http.MaxBytesReader(c.Response(), r.Body, MaxRequestBytes)
+	_, _ = io.Copy(io.Discard, r.Body)
+}
+
+func admissionError(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, audiobudget.ErrNotEntitled):
+		return writeError(c, http.StatusForbidden, "analysis_not_entitled", "audio analysis is not enabled for this account")
+	case errors.Is(err, audiobudget.ErrQuotaExceeded):
+		return writeError(c, http.StatusTooManyRequests, "analysis_quota_exceeded", "audio analysis quota has been reached")
+	case errors.Is(err, audiobudget.ErrConcurrency):
+		return writeError(c, http.StatusTooManyRequests, "analysis_busy", "audio analysis capacity is busy")
+	case errors.Is(err, audiobudget.ErrRateLimited):
+		return writeError(c, http.StatusTooManyRequests, "analysis_rate_limited", "please wait before starting another audio analysis")
+	case errors.Is(err, audiobudget.ErrExpired):
+		return writeError(c, http.StatusTooManyRequests, "analysis_reservation_expired", "audio analysis request expired before it started")
+	default:
+		return writeError(c, http.StatusServiceUnavailable, "analysis_control_unavailable", "audio analysis is temporarily unavailable")
+	}
+}
+
+func (h *Handler) settleDetached(admission audiobudget.Store, id, state, safeCode string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return admission.Settle(ctx, id, state, safeCode)
 }
 
 func pythonProcessDetails(err error) []any {
@@ -361,13 +502,13 @@ func (p ffprobe) Probe(parent context.Context, path string) (WAVInfo, error) {
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, p.executable, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name,sample_rate,channels,duration:format=duration,format_name", "-of", "json", path)
-	setProcessGroup(cmd)
-	out, err := cmd.Output()
-	if err != nil {
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	if err := runInProcessGroup(ctx, cmd); err != nil {
 		return WAVInfo{}, errors.New("ffprobe rejected WAV")
 	}
 	var parsed probeOutput
-	if json.Unmarshal(out, &parsed) != nil || len(parsed.Streams) != 1 || !strings.Contains(strings.Split(parsed.Format.FormatName, ",")[0], "wav") {
+	if json.Unmarshal(output.Bytes(), &parsed) != nil || len(parsed.Streams) != 1 || !strings.Contains(strings.Split(parsed.Format.FormatName, ",")[0], "wav") {
 		return WAVInfo{}, errors.New("invalid WAV metadata")
 	}
 	s := parsed.Streams[0]
@@ -384,27 +525,87 @@ func (p ffprobe) Probe(parent context.Context, path string) (WAVInfo, error) {
 }
 
 func (r commandRunner) Analyze(parent context.Context, inputPath, outputDir, gateMode string) error {
-	cmd := exec.CommandContext(parent, r.executable, pythonIslandArgs(inputPath, outputDir, gateMode)...)
+	cmd := exec.CommandContext(parent, r.executable, pythonIslandArgs(inputPath, outputDir, gateMode, r.threads)...)
 	cmd.Dir = r.workDir
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	setProcessGroup(cmd)
-	return cmd.Run()
+	return runInProcessGroup(parent, cmd)
 }
 
-func pythonIslandArgs(inputPath, outputDir, gateMode string) []string {
-	return []string{inputPath, "--output-dir", outputDir, "--threads", "4", "--kick-gate-mode", gateMode}
+func pythonIslandArgs(inputPath, outputDir, gateMode string, threads int) []string {
+	return []string{inputPath, "--output-dir", outputDir, "--threads", strconv.Itoa(threads), "--kick-gate-mode", gateMode}
 }
 
-func setProcessGroup(cmd *exec.Cmd) {
+const processGroupTerminationGrace = 500 * time.Millisecond
+
+func runInProcessGroup(ctx context.Context, cmd *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var timerMu sync.Mutex
+	var killTimer *time.Timer
+	var killDone chan struct{}
+	finished := false
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return os.ErrProcessDone
 		}
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		pid := cmd.Process.Pid
+		timerMu.Lock()
+		defer timerMu.Unlock()
+		if finished {
+			return os.ErrProcessDone
+		}
+		err := syscall.Kill(-pid, syscall.SIGTERM)
+		if err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		if killTimer == nil {
+			killDone = make(chan struct{})
+			killTimer = time.AfterFunc(processGroupTerminationGrace, func() {
+				_ = killProcessGroup(pid)
+				close(killDone)
+			})
+		}
+		return nil
 	}
 	cmd.WaitDelay = 2 * time.Second
+	err := cmd.Run()
+	timerMu.Lock()
+	finished = true
+	timer := killTimer
+	done := killDone
+	ctxErr := ctx.Err()
+	if ctxErr != nil && timer == nil {
+		_ = killProcessGroup(processPID(cmd))
+	}
+	timerMu.Unlock()
+	if ctxErr == nil {
+		return err
+	}
+
+	// Wait until the entire group is killed before the caller's deferred temp-dir
+	// cleanup runs. cmd.Run has already waited/reaped the direct child.
+	if done != nil {
+		<-done
+	}
+	return ctxErr
+}
+
+func processPID(cmd *exec.Cmd) int {
+	if cmd.Process == nil {
+		return 0
+	}
+	return cmd.Process.Pid
+}
+
+func killProcessGroup(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	err := syscall.Kill(-pid, syscall.SIGKILL)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return err
 }
 
 type validatedResult struct {
@@ -445,7 +646,7 @@ func readAndValidateResult(outputDir string, inputDurationSeconds float64, input
 	if json.Unmarshal(result.response.MusicSummary, &summary) != nil || json.Unmarshal(result.response.AnalysisMetadata, &metadata) != nil || metadata.MetadataVersion != 1 {
 		return result, errors.New("invalid analysis metadata")
 	}
-	if summaryValue.Analysis.Model != "htdemucs" || summaryValue.Analysis.Device != "cpu" || summaryValue.SourceAudio.Format != "wav" || summaryValue.SourceAudio.Codec != "pcm_s16le" || summaryValue.SourceAudio.SampleRateHz != 44_100 || summaryValue.SourceAudio.Channels != 2 || summaryValue.SourceAudio.FileBytes != inputBytes {
+	if (summaryValue.Analysis.Model != "scnet_standard" && summaryValue.Analysis.Model != "htdemucs") || summaryValue.Analysis.Device != "cpu" || summaryValue.SourceAudio.Format != "wav" || summaryValue.SourceAudio.Codec != "pcm_s16le" || summaryValue.SourceAudio.SampleRateHz != 44_100 || summaryValue.SourceAudio.Channels != 2 || summaryValue.SourceAudio.FileBytes != inputBytes {
 		return result, errors.New("unexpected analysis model or audio format")
 	}
 	inputDurationMs := inputDurationSeconds * 1000
