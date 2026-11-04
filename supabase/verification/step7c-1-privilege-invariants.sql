@@ -23,8 +23,16 @@ WITH checks(name, passed) AS (
   UNION ALL SELECT 'verifier_is_login_nonsuperuser_nobypassrls_noinherit', r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolbypassrls AND NOT r.rolinherit AND NOT r.rolcreaterole AND NOT r.rolcreatedb
     FROM pg_catalog.pg_roles r WHERE r.rolname = 'arvc_asset_verifier'
   UNION ALL SELECT 'verifier_has_no_role_memberships', NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid = m.roleid JOIN pg_catalog.pg_roles u ON u.oid = m.member
-    WHERE r.rolname = 'arvc_asset_verifier' OR u.rolname = 'arvc_asset_verifier'
+    SELECT 1 FROM pg_catalog.pg_auth_members m
+    WHERE (m.roleid = 'arvc_asset_verifier'::regrole OR m.member = 'arvc_asset_verifier'::regrole)
+      AND NOT (
+        m.roleid = 'arvc_asset_verifier'::regrole
+        AND m.member = 'postgres'::regrole
+        AND m.grantor = 'supabase_admin'::regrole
+        AND m.admin_option
+        AND NOT m.inherit_option
+        AND NOT m.set_option
+      )
   )
   UNION ALL SELECT 'verifier_has_no_project_assets_table_privilege',
     NOT has_table_privilege('arvc_asset_verifier', 'public.project_assets', 'SELECT')

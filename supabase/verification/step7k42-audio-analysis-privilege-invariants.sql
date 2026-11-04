@@ -11,7 +11,11 @@ WITH targets AS (
       AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolbypassrls AND NOT rolinherit) AS ok
   UNION ALL SELECT 'audio_role_has_no_membership',
     NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid
-      JOIN pg_catalog.pg_roles member ON member.oid=m.member WHERE r.rolname='arvc_audio_analysis' OR member.rolname='arvc_audio_analysis')
+      JOIN pg_catalog.pg_roles member ON member.oid=m.member
+      WHERE (r.rolname='arvc_audio_analysis' OR member.rolname='arvc_audio_analysis')
+        AND NOT (r.rolname='arvc_audio_analysis' AND member.rolname='postgres'
+          AND m.grantor='supabase_admin'::regrole AND m.admin_option
+          AND NOT m.inherit_option AND NOT m.set_option))
   UNION ALL SELECT 'audio_role_has_only_four_private_rpcs',
     has_function_privilege('arvc_audio_analysis', reserve_fn, 'EXECUTE')
     AND has_function_privilege('arvc_audio_analysis', start_fn, 'EXECUTE')

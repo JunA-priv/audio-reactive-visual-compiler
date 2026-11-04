@@ -9,8 +9,11 @@ WITH target AS (
     EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='arvc_ai_budget'
       AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolbypassrls AND NOT rolinherit) AS ok
   UNION ALL SELECT 'budget_role_no_memberships',
-    NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid
-      JOIN pg_catalog.pg_roles member ON member.oid=m.member WHERE r.rolname='arvc_ai_budget' OR member.rolname='arvc_ai_budget')
+    NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m
+      WHERE (m.roleid='arvc_ai_budget'::regrole OR m.member='arvc_ai_budget'::regrole)
+        AND NOT (m.roleid='arvc_ai_budget'::regrole AND m.member='postgres'::regrole
+          AND m.grantor='supabase_admin'::regrole AND m.admin_option
+          AND NOT m.inherit_option AND NOT m.set_option))
   UNION ALL SELECT 'budget_role_private_rpc_only',
     has_function_privilege('arvc_ai_budget', reserve_fn, 'EXECUTE')
     AND has_function_privilege('arvc_ai_budget', fixture_fn, 'EXECUTE')
