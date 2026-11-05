@@ -12,6 +12,7 @@ import (
 )
 
 type TaskAuthenticator interface{ Authenticate(*http.Request) bool }
+type DatabasePinger interface{ Ping(context.Context) error }
 type taskRequest struct {
 	JobID      string `json:"jobId"`
 	Generation int    `json:"generation"`
@@ -84,6 +85,25 @@ func (j *JobAPI) RegisterDispatchWake(e *echo.Echo, auth TaskAuthenticator) {
 		dispatchErr := j.dispatcher.Dispatch(ctx)
 		cleanupErr := j.CleanupStorage(ctx, 50)
 		if dispatchErr != nil || cleanupErr != nil {
+			return c.NoContent(http.StatusServiceUnavailable)
+		}
+		return c.NoContent(http.StatusNoContent)
+	})
+}
+
+// RegisterDatabaseHealthCheck adds a separately authenticated, read-only probe.
+// It does not dispatch, clean up, or mutate database rows.
+func (j *JobAPI) RegisterDatabaseHealthCheck(e *echo.Echo, auth TaskAuthenticator, db DatabasePinger) {
+	e.GET("/internal/ops/supabase-health", func(c *echo.Context) error {
+		if auth == nil || !auth.Authenticate(c.Request()) {
+			return c.NoContent(http.StatusUnauthorized)
+		}
+		if db == nil {
+			return c.NoContent(http.StatusServiceUnavailable)
+		}
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 3*time.Second)
+		defer cancel()
+		if db.Ping(ctx) != nil {
 			return c.NoContent(http.StatusServiceUnavailable)
 		}
 		return c.NoContent(http.StatusNoContent)

@@ -20,12 +20,21 @@ import (
 	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/authn"
 	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/projects"
 	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/service"
+	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/supabasepg"
 	"github.com/labstack/echo/v5"
 )
 
 func main() {
 	rootCtx, stopSignals := newSignalContext()
 	defer stopSignals()
+	authMode := strings.ToLower(strings.TrimSpace(os.Getenv("AUTH_ENV")))
+	if authMode == "" {
+		authMode = "local"
+	}
+	if authMode != "local" && authMode != "hosted" {
+		slog.Error("AUTH_ENV must be local or hosted")
+		os.Exit(1)
+	}
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("BLUEPRINT_MODE")))
 	if mode == "" {
 		mode = "fixture"
@@ -50,7 +59,7 @@ func main() {
 		os.Exit(1)
 	}
 	var exemptionErr error
-	localFixtureDeveloperID, exemptionErr = resolveLocalFixtureDeveloperID(localFixtureUnlimited, aiEnabled, mode, localFixtureDeveloperID)
+	localFixtureDeveloperID, exemptionErr = resolveLocalFixtureDeveloperID(localFixtureUnlimited, aiEnabled, mode, authMode, localFixtureDeveloperID)
 	if exemptionErr != nil {
 		slog.Error("local fixture exemption configuration is invalid")
 		os.Exit(1)
@@ -88,18 +97,10 @@ func main() {
 	audioAnalysisJobsEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("AUDIO_ANALYSIS_JOBS_ENABLED")), "true")
 	var audioAnalysisHandler *audioanalysis.Handler
 	var audioJobsHandler *audioanalysis.JobAPI
-	var workerTaskAuth, schedulerTaskAuth *audioanalysis.GoogleOIDCAuthenticator
+	var workerTaskAuth, schedulerTaskAuth, databaseHealthAuth *audioanalysis.GoogleOIDCAuthenticator
 	var audioJobsWorkerDone chan struct{}
 	if audioAnalysisJobsEnabled && !audioAnalysisEnabled {
 		slog.Error("AUDIO_ANALYSIS_ENABLED is required when async audio jobs are enabled")
-		os.Exit(1)
-	}
-	authMode := strings.ToLower(strings.TrimSpace(os.Getenv("AUTH_ENV")))
-	if authMode == "" {
-		authMode = "local"
-	}
-	if authMode != "local" && authMode != "hosted" {
-		slog.Error("AUTH_ENV must be local or hosted")
 		os.Exit(1)
 	}
 	serviceRole := strings.TrimSpace(os.Getenv("ARVC_SERVICE_ROLE"))
@@ -136,6 +137,11 @@ func main() {
 		supabaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_URL")), "/")
 		if supabaseURL == "" {
 			supabaseURL = "http://127.0.0.1:54321"
+		}
+		projectRef, refErr := supabasepg.ProjectRefFromURL(supabaseURL)
+		if refErr != nil || (authMode == "hosted" && projectRef == "") || (authMode == "local" && projectRef != "") {
+			slog.Error("Supabase project URL does not match AUTH_ENV")
+			os.Exit(1)
 		}
 		issuer := strings.TrimRight(strings.TrimSpace(os.Getenv("SUPABASE_ISSUER")), "/")
 		if issuer == "" {
@@ -185,7 +191,7 @@ func main() {
 				slog.Error("AI budget store configuration is required")
 				os.Exit(1)
 			}
-			aiBudget, err = aibudget.NewPostgres(context.Background(), dsn)
+			aiBudget, err = aibudget.NewPostgresForProject(context.Background(), dsn, projectRef)
 			if err != nil {
 				authValidator.Close()
 				slog.Error("AI budget store initialization failed")
@@ -199,7 +205,7 @@ func main() {
 				slog.Error("audio analysis quota store configuration is required")
 				os.Exit(1)
 			}
-			audioBudget, err = audiobudget.NewPostgres(context.Background(), dsn)
+			audioBudget, err = audiobudget.NewPostgresForProject(context.Background(), dsn, projectRef)
 			if err != nil {
 				authValidator.Close()
 				var initErr *audiobudget.InitializationError
@@ -235,8 +241,9 @@ func main() {
 			}
 			if audioAnalysisJobsEnabled {
 				storageKey := strings.TrimSpace(os.Getenv("SUPABASE_AUDIO_STORAGE_KEY"))
+				storageKeyKind := audiojobs.StorageKeyKind(strings.TrimSpace(os.Getenv("SUPABASE_AUDIO_STORAGE_KEY_KIND")))
 				if storageKey != "" {
-					audioStorage, err = audiojobs.NewSupabaseStorage(supabaseURL, storageKey)
+					audioStorage, err = audiojobs.NewSupabaseStorage(supabaseURL, storageKey, storageKeyKind)
 					if err != nil {
 						authValidator.Close()
 						audioBudget.Close()
@@ -249,7 +256,7 @@ func main() {
 					slog.Error("SUPABASE_AUDIO_STORAGE_KEY is required for async audio jobs")
 					os.Exit(1)
 				}
-				audioJobs, err = audiojobs.NewPostgres(context.Background(), dsn)
+				audioJobs, err = audiojobs.NewPostgresForProject(context.Background(), dsn, projectRef)
 				if err != nil {
 					authValidator.Close()
 					audioBudget.Close()
@@ -265,6 +272,21 @@ func main() {
 					os.Exit(1)
 				}
 				audioJobsHandler.SetStorage(audioStorage)
+				databaseHealthEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("AUDIO_DB_HEALTHCHECK_ENABLED")), "true")
+				if databaseHealthEnabled {
+					apiURL := strings.TrimRight(strings.TrimSpace(os.Getenv("AUDIO_API_URL")), "/")
+					healthSA := strings.TrimSpace(os.Getenv("CLOUD_DB_HEALTHCHECK_SERVICE_ACCOUNT"))
+					if authMode != "hosted" || serviceRole != "api" || apiURL == "" || healthSA == "" {
+						slog.Error("database health check requires Hosted API OIDC configuration")
+						os.Exit(1)
+					}
+					databaseHealthAuth, err = audioanalysis.NewGoogleOIDCAuthenticator(rootCtx, apiURL, healthSA)
+					if err != nil {
+						slog.Error("database health check OIDC configuration invalid")
+						os.Exit(1)
+					}
+					defer databaseHealthAuth.Close()
+				}
 				if transport == "cloud_tasks" {
 					workerURL := strings.TrimRight(strings.TrimSpace(os.Getenv("AUDIO_WORKER_URL")), "/")
 					invoker := strings.TrimSpace(os.Getenv("CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT"))
@@ -320,6 +342,9 @@ func main() {
 	if audioJobsHandler != nil {
 		if serviceRole != "worker" {
 			audioJobsHandler.Register(e, authValidator.Middleware)
+			if databaseHealthAuth != nil {
+				audioJobsHandler.RegisterDatabaseHealthCheck(e, databaseHealthAuth, audioJobs)
+			}
 			if schedulerTaskAuth != nil {
 				audioJobsHandler.RegisterDispatchWake(e, schedulerTaskAuth)
 			}
@@ -420,12 +445,12 @@ func resolveAnalysisThreads(raw string) (int, error) {
 
 var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-func resolveLocalFixtureDeveloperID(enabled, aiEnabled bool, mode, userID string) (string, error) {
+func resolveLocalFixtureDeveloperID(enabled, aiEnabled bool, mode, authMode, userID string) (string, error) {
 	if !enabled {
 		return "", nil
 	}
 	userID = strings.ToLower(strings.TrimSpace(userID))
-	if !aiEnabled || mode != "fixture" || !uuidPattern.MatchString(userID) {
+	if !aiEnabled || mode != "fixture" || authMode != "local" || !uuidPattern.MatchString(userID) {
 		return "", errors.New("invalid local fixture exemption configuration")
 	}
 	return userID, nil

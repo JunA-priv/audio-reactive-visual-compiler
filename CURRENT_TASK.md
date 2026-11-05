@@ -1,4 +1,16 @@
-# CURRENT_TASK — Step 7k-52：Supabase Storage移行・非同期解析統合
+# CURRENT_TASK — Step 7k-55：Hosted Supabase互換性修正
+
+**Status: completed（ローカル実装・隔離検証まで。Hosted/GCP/GitHub未適用）—** Storage key kind別header、Free IPv4 Session Pooler専用role/project-ref/TLS検証、017/018初回baseline方針、migration manifest/dry-run fail-closed workflow、local fixture Hosted拒否、8時間read-only OIDC DB healthcheckと通知/費用運用を実装。Go対象package race/vet/build、静的migration/workflowガードPASS。隔離DB 23 migrations read-only確認。Hosted接続/GCP資源/production CIは未実施。公開はHosted/課金設定と実CLI/Hosted相当dry-run確認までNO-GO。詳細：[Step 7k-55 report](docs/reports/2026-11-05-step7k-55-hosted-supabase-compatibility.md)。
+
+---
+
+# HISTORICAL — Step 7k-54：Hosted Supabase移行準備
+
+**Status: partial（調査・条件付き計画。Hosted適用NO-GO）—** main `42627b771108dbc40f33dc561388c943955c9ffa`をread-only確認。新規空project、データ非移行、Free枠・Auth/DB/Storage/IAM・backup/recoveryを整理。Hosted適用前ブロッカー：(1) Storage clientが新形式`sb_secret_`をBearer送信、(2) Go DSN parserがFree IPv4 pooler role usernameを拒否、(3) migration 018はHosted適用禁止コメントがある一方release workflowは未適用migrationを全適用し、017はlocal fixture quota関数を追加するため適用対象が未確定。Hosted DB role/credential、Auth key、region、CLI経路も未確認。Hosted/GCP/GitHubへの接続・更新・適用なし。詳細：[Step 7k-54 migration readiness](docs/reports/2026-11-05-step7k-54-hosted-supabase-migration-readiness.md)。
+
+---
+
+# HISTORICAL — Step 7k-52：Supabase Storage移行・非同期解析統合
 
 **Status: completed（Hosted適用なし）—** 新規音声をprivate Supabase Storageへ保存し、既存`audio_wav bytea`ジョブとのdual-readを維持。job/user単位の参照、upload intent・outbox・Worker claim/fencing・quota settlement・terminal cleanupを統合。Storage uploadはno-overwrite、owner read policy、service-only mutation、制限付きobject key/sizeを適用。DB/Storage部分失敗はintent/cleanup outboxと再試行で回復可能。旧byteaは削除・backfillせず保持。隔離Supabase Storage/DB live round trip（owner/他ユーザー/anonymous、dispatch、duplicate delivery、結果GET、quota一回、Storage delete）PASS。Go race/vet/build、Step 7k-52 SQL verification、Docker image build/healthcheck、workflow/YAML/shell/diff checks PASS。WSL再起動後も開発/隔離Supabase DB volumeを保持し、API/Vite healthyを確認。Hosted/GCP/共有DB変更・push/deployなし。
 

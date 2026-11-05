@@ -31,6 +31,8 @@ spec:
             - {name: PORT, value: "8080"}
             - {name: ARVC_SERVICE_ROLE, value: api}
             - {name: AUTH_ENV, value: hosted}
+            - {name: AI_GENERATION_ENABLED, value: "false"}
+            - {name: AI_FIXTURE_UNLIMITED_LOCAL, value: "false"}
             - {name: AUDIO_ANALYSIS_ENABLED, value: "true"}
             - {name: AUDIO_ANALYSIS_JOBS_ENABLED, value: "true"}
             - {name: AUDIO_ANALYSIS_TRANSPORT, value: cloud_tasks}
@@ -41,6 +43,9 @@ spec:
             - {name: CORS_ALLOWED_ORIGINS, value: https://APP_ORIGIN}
             - {name: AUDIO_WORKER_URL, value: https://WORKER_SERVICE_URL}
             - {name: AUDIO_API_URL, value: https://API_SERVICE_URL}
+            # Enable only with the separate 8-hour DB probe Scheduler job and alert route.
+            - {name: AUDIO_DB_HEALTHCHECK_ENABLED, value: "false"}
+            - {name: CLOUD_DB_HEALTHCHECK_SERVICE_ACCOUNT, value: arvc-db-healthcheck@PROJECT_ID.iam.gserviceaccount.com}
             - {name: CLOUD_TASKS_PROJECT, value: PROJECT_ID}
             - {name: CLOUD_TASKS_LOCATION, value: REGION}
             - {name: CLOUD_TASKS_QUEUE, value: scnet-analysis}
@@ -50,3 +55,4 @@ spec:
               valueFrom: {secretKeyRef: {name: hosted-audio-worker-dsn, key: latest}}
             - name: SUPABASE_AUDIO_STORAGE_KEY
               valueFrom: {secretKeyRef: {name: hosted-audio-storage-key, key: latest}}
+            - {name: SUPABASE_AUDIO_STORAGE_KEY_KIND, value: secret_api_key}

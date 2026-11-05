@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/audiobudget"
+	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/supabasepg"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -89,18 +90,15 @@ func NewJobUUID() (string, error) {
 }
 
 func NewPostgres(ctx context.Context, dsn string) (*Postgres, error) {
-	cfg, err := pgxpool.ParseConfig(strings.TrimSpace(dsn))
-	if err != nil || cfg.ConnConfig.User != "arvc_audio_analysis" {
+	return NewPostgresForProject(ctx, dsn, "")
+}
+
+func NewPostgresForProject(ctx context.Context, dsn, projectRef string) (*Postgres, error) {
+	cfg, err := supabasepg.ParseAudioAnalysisConfig(strings.TrimSpace(dsn), projectRef)
+	if err != nil {
 		return nil, ErrUnavailable
 	}
-	host := strings.Trim(cfg.ConnConfig.Host, "[]")
-	if host != "127.0.0.1" && host != "localhost" && host != "::1" {
-		tls := cfg.ConnConfig.TLSConfig
-		if tls == nil || tls.InsecureSkipVerify || tls.ServerName != cfg.ConnConfig.Host {
-			return nil, ErrUnavailable
-		}
-	}
-	cfg.MaxConns, cfg.MinConns = 4, 0
+	cfg.MaxConns, cfg.MinConns = int32(supabasepg.MaxAudioAnalysisPoolConns(projectRef != "")), 0
 	cfg.ConnConfig.ConnectTimeout = 3 * time.Second
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -123,6 +121,15 @@ func (p *Postgres) Close() {
 	if p != nil && p.pool != nil {
 		p.pool.Close()
 	}
+}
+
+// Ping performs the database driver's bounded read-only health probe.
+func (p *Postgres) Ping(ctx context.Context) error {
+	if p == nil || p.pool == nil {
+		return ErrUnavailable
+	}
+	var one int
+	return p.pool.QueryRow(ctx, `SELECT 1`).Scan(&one)
 }
 
 func (p *Postgres) ClaimDispatch(ctx context.Context, limit int) ([]DispatchItem, error) {

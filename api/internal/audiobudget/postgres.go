@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"net"
-	"strings"
 	"time"
 
+	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/supabasepg"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -83,11 +83,15 @@ type Store interface {
 type Postgres struct{ pool *pgxpool.Pool }
 
 func NewPostgres(ctx context.Context, dsn string) (*Postgres, error) {
-	cfg, err := parseConfig(dsn)
+	return NewPostgresForProject(ctx, dsn, "")
+}
+
+func NewPostgresForProject(ctx context.Context, dsn, projectRef string) (*Postgres, error) {
+	cfg, err := supabasepg.ParseAudioAnalysisConfig(dsn, projectRef)
 	if err != nil {
 		return nil, &InitializationError{Stage: "configuration", Class: "rejected"}
 	}
-	cfg.MaxConns = 4
+	cfg.MaxConns = int32(supabasepg.MaxAudioAnalysisPoolConns(projectRef != ""))
 	cfg.MinConns = 0
 	cfg.ConnConfig.ConnectTimeout = operationTimeout
 	p, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -101,26 +105,6 @@ func NewPostgres(ctx context.Context, dsn string) (*Postgres, error) {
 		return nil, initializationFailure("ping", err)
 	}
 	return &Postgres{pool: p}, nil
-}
-
-func parseConfig(dsn string) (*pgxpool.Config, error) {
-	if strings.TrimSpace(dsn) == "" {
-		return nil, ErrUnavailable
-	}
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil || cfg.ConnConfig.User != "arvc_audio_analysis" {
-		return nil, ErrUnavailable
-	}
-	host := strings.Trim(cfg.ConnConfig.Host, "[]")
-	local := host == "127.0.0.1" || host == "localhost" || host == "::1"
-	if !local {
-		// pgx uses ServerName with normal certificate verification only for
-		// sslmode=verify-full; other TLS modes skip hostname verification.
-		if cfg.ConnConfig.TLSConfig == nil || cfg.ConnConfig.TLSConfig.InsecureSkipVerify || cfg.ConnConfig.TLSConfig.ServerName != cfg.ConnConfig.Host {
-			return nil, ErrUnavailable
-		}
-	}
-	return cfg, nil
 }
 
 func (p *Postgres) Close() {

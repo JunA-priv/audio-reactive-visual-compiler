@@ -81,7 +81,7 @@ func TestLiveStorageJobRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	storage, err := audiojobs.NewSupabaseStorage(storageURL, storageKey)
+	storage, err := audiojobs.NewSupabaseStorage(storageURL, storageKey, audiojobs.StorageKeyLegacyServiceJWT)
 	if err != nil {
 		t.Fatal(err)
 	}

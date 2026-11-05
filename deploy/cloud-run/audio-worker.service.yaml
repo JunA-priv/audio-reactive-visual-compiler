@@ -66,3 +66,5 @@ spec:
                 secretKeyRef:
                   name: hosted-audio-storage-key
                   key: latest
+            - name: SUPABASE_AUDIO_STORAGE_KEY_KIND
+              value: secret_api_key

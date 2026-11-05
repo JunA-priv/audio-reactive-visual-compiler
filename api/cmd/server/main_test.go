@@ -66,3 +66,13 @@ func TestResolveAnalysisThreads(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalFixtureExemptionIsLocalOnly(t *testing.T) {
+	const user = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	if got, err := resolveLocalFixtureDeveloperID(true, true, "fixture", "local", user); err != nil || got != user {
+		t.Fatalf("local fixture exemption rejected: got=%q err=%v", got, err)
+	}
+	if _, err := resolveLocalFixtureDeveloperID(true, true, "fixture", "hosted", user); err == nil {
+		t.Fatal("Hosted fixture exemption was accepted")
+	}
+}

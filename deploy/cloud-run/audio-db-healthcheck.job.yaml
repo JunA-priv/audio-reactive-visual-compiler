@@ -1,0 +1,15 @@
+# Template only: a separate 8-hour read-only DB ping, not outbox recovery.
+# Creating a Scheduler job / service account / Monitoring notification route is an
+# external operation and may incur charges; confirm current GCP pricing first.
+name: projects/PROJECT_ID/locations/REGION/jobs/arvc-supabase-db-healthcheck
+schedule: "0 */8 * * *"
+timeZone: Etc/UTC
+attemptDeadline: 10s
+httpTarget:
+  uri: https://API_SERVICE_URL/internal/ops/supabase-health
+  httpMethod: GET
+  oidcToken:
+    serviceAccountEmail: arvc-db-healthcheck@PROJECT_ID.iam.gserviceaccount.com
+    audience: https://API_SERVICE_URL
+retryConfig:
+  retryCount: 0

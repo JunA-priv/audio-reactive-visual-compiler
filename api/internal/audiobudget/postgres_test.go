@@ -4,23 +4,24 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/supabasepg"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestParseConfigRequiresDedicatedRoleAndVerifiedRemoteTLS(t *testing.T) {
 	for _, tc := range []struct {
-		name, dsn string
-		wantErr   bool
+		name, dsn, projectRef string
+		wantErr               bool
 	}{
-		{"local role", "postgres://arvc_audio_analysis@127.0.0.1:54322/postgres?sslmode=disable", false},
-		{"remote verify full", "postgres://arvc_audio_analysis@db.example.test/postgres?sslmode=verify-full", false},
-		{"remote TLS without hostname check", "postgres://arvc_audio_analysis@db.example.test/postgres?sslmode=require", true},
-		{"remote plaintext", "postgres://arvc_audio_analysis@db.example.test/postgres?sslmode=disable", true},
-		{"wrong role", "postgres://postgres@127.0.0.1/postgres?sslmode=disable", true},
-		{"invalid DSN", "not a DSN", true},
+		{"local role", "postgres://arvc_audio_analysis@127.0.0.1:54322/postgres?sslmode=disable", "", false},
+		{"IPv4 session pooler", "postgres://arvc_audio_analysis.abcdefghijklmnopqrst@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=verify-full", "abcdefghijklmnopqrst", false},
+		{"remote TLS without hostname check", "postgres://arvc_audio_analysis.abcdefghijklmnopqrst@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require", "abcdefghijklmnopqrst", true},
+		{"remote plaintext", "postgres://arvc_audio_analysis.abcdefghijklmnopqrst@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=disable", "abcdefghijklmnopqrst", true},
+		{"wrong role", "postgres://postgres@127.0.0.1/postgres?sslmode=disable", "", true},
+		{"invalid DSN", "not a DSN", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := parseConfig(tc.dsn)
+			_, err := supabasepg.ParseAudioAnalysisConfig(tc.dsn, tc.projectRef)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("parseConfig error=%v wantErr=%v", err, tc.wantErr)
 			}

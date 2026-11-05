@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/JunA-priv/audio-reactive-visual-compiler/api/internal/supabasepg"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -49,14 +50,15 @@ type LocalFixtureStore interface {
 type Postgres struct{ pool *pgxpool.Pool }
 
 func NewPostgres(ctx context.Context, dsn string) (*Postgres, error) {
-	if strings.TrimSpace(dsn) == "" {
+	return NewPostgresForProject(ctx, dsn, "")
+}
+
+func NewPostgresForProject(ctx context.Context, dsn, projectRef string) (*Postgres, error) {
+	cfg, err := supabasepg.ParseAIBudgetConfig(strings.TrimSpace(dsn), projectRef)
+	if err != nil {
 		return nil, ErrUnavailable
 	}
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil || cfg.ConnConfig.User != "arvc_ai_budget" || cfg.ConnConfig.Host != "127.0.0.1" && cfg.ConnConfig.Host != "localhost" && cfg.ConnConfig.Host != "::1" {
-		return nil, ErrUnavailable
-	}
-	cfg.MaxConns = 4
+	cfg.MaxConns = int32(supabasepg.MaxAudioAnalysisPoolConns(projectRef != ""))
 	cfg.MinConns = 0
 	p, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

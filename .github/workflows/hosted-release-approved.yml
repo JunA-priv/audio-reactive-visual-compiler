@@ -12,9 +12,27 @@ on:
         description: Full Artifact Registry image reference ending in @sha256:<64 hex chars>.
         type: string
         required: true
+      expected_project_ref:
+        description: 20-character Supabase project ref shown in the production Environment.
+        type: string
+        required: true
+      expected_migrations:
+        description: Exact pending 14-digit migration versions, comma-separated, or none.
+        type: string
+        required: true
+        default: none
+      confirm_fresh_project_empty:
+        description: Confirm in the Supabase Dashboard that a full-baseline target has no app schema/data.
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: hosted-production-release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -32,27 +50,55 @@ jobs:
       - name: Validate immutable release input and reviewed migrations
         env:
           IMAGE: ${{ inputs.image_digest }}
+          EXPECTED_PROJECT_REF: ${{ inputs.expected_project_ref }}
+          PROTECTED_PROJECT_REF: ${{ vars.ARVC_PRODUCTION_SUPABASE_PROJECT_REF }}
+          CONFIRM_FRESH_PROJECT_EMPTY: ${{ inputs.confirm_fresh_project_empty }}
         run: |
           set -euo pipefail
           [[ "$IMAGE" =~ ^[a-z0-9-]+-docker\.pkg\.dev/[a-z0-9-]+/[a-z0-9._-]+/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]
+          [[ "$EXPECTED_PROJECT_REF" =~ ^[a-z0-9]{20}$ ]]
+          test "$EXPECTED_PROJECT_REF" = "$PROTECTED_PROJECT_REF"
           scripts/tests/check-forward-migrations.sh HEAD^
-          test -s supabase/migrations/20261105000100_step7k50b_audio_analysis_jobs.sql
-          test -s supabase/migrations/20261105000200_step7k50d_audio_job_quota_idempotency.sql
-          test -s supabase/migrations/20261105000300_step7k50e_audio_job_dispatch_outbox.sql
-          test -s supabase/migrations/20261105000400_step7k52_audio_storage.sql
+          scripts/tests/check-hosted-migration-manifest.sh
       - uses: supabase/setup-cli@v3
         with:
           version: 2.121.0
-      - name: Apply Hosted migrations
+      - name: Verify exact Hosted migration target
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          PROJECT_REF: ${{ vars.ARVC_PRODUCTION_SUPABASE_PROJECT_REF }}
+          SUPABASE_MIGRATION_DSN: ${{ secrets.SUPABASE_MIGRATION_DSN }}
+          EXPECTED_PROJECT_REF: ${{ inputs.expected_project_ref }}
+          EXPECTED_POOLER_HOST: ${{ vars.ARVC_PRODUCTION_POOLER_HOST }}
+          EXPECTED_MIGRATIONS: ${{ inputs.expected_migrations }}
+          CONFIRM_FRESH_PROJECT_EMPTY: ${{ inputs.confirm_fresh_project_empty }}
         run: |
           set -euo pipefail
-          test -n "$SUPABASE_ACCESS_TOKEN"
-          test -n "$PROJECT_REF"
-          supabase link --project-ref "$PROJECT_REF"
-          supabase db push --linked --yes
+          echo "::add-mask::$SUPABASE_MIGRATION_DSN"
+          python3 scripts/tests/check-hosted-migration-dsn.py
+          list="$RUNNER_TEMP/arvc-migration-list.txt"
+          dry="$RUNNER_TEMP/arvc-migration-dry-run.txt"
+          if ! supabase migration list --db-url "$SUPABASE_MIGRATION_DSN" >"$list" 2>&1; then
+            echo "Could not read Hosted migration history; no migration or deployment applied."
+            exit 1
+          fi
+          if ! supabase db push --db-url "$SUPABASE_MIGRATION_DSN" --dry-run >"$dry" 2>&1; then
+            echo "Hosted migration dry-run failed; no migration or deployment applied."
+            exit 1
+          fi
+          python3 scripts/tests/check-hosted-migration-target.py before "$list" "$dry" "$EXPECTED_MIGRATIONS" "$CONFIRM_FRESH_PROJECT_EMPTY"
+      - name: Apply only verified Hosted migrations
+        env:
+          SUPABASE_MIGRATION_DSN: ${{ secrets.SUPABASE_MIGRATION_DSN }}
+        run: |
+          set -euo pipefail
+          if ! supabase db push --db-url "$SUPABASE_MIGRATION_DSN" --yes >"$RUNNER_TEMP/arvc-migration-apply.txt" 2>&1; then
+            echo "Hosted migration apply failed. Automatic retry, history repair, rollback, and deployment are stopped."
+            exit 1
+          fi
+          if ! supabase migration list --db-url "$SUPABASE_MIGRATION_DSN" >"$RUNNER_TEMP/arvc-migration-after.txt" 2>&1; then
+            echo "Could not verify Hosted migration result; deployment is stopped."
+            exit 1
+          fi
+          python3 scripts/tests/check-hosted-migration-target.py after "$RUNNER_TEMP/arvc-migration-after.txt" "$RUNNER_TEMP/arvc-migration-apply.txt" none false
       - uses: google-github-actions/auth@ba79af03959ebeac9769e648f473a284504d9193 # v2.1.7
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
