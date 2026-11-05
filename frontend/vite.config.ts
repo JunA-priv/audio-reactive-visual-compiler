@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
+import { lstat, readFile, realpath } from 'node:fs/promises';
+import { relative, resolve, sep } from 'node:path';
+import { assertSafeDemoAssetPath, demoPublicationAllowlist } from './scripts/demo-publication-allowlist.mjs';
 
 function localApiProxyTarget(): string {
   const target = process.env.ARVC_API_PROXY_TARGET?.trim() || 'http://127.0.0.1:8080';
@@ -56,11 +59,38 @@ function cloudflarePagesHeadersPlugin(): Plugin {
   };
 }
 
+function approvedDemoAssetsPlugin(): Plugin {
+  const publicDirectory = resolve(import.meta.dirname, 'public');
+  return {
+    name: 'arvc-approved-demo-assets',
+    apply: 'build',
+    async generateBundle() {
+      for (const assetPath of demoPublicationAllowlist) {
+        const safePath = assertSafeDemoAssetPath(assetPath);
+        const sourcePath = resolve(publicDirectory, safePath);
+        const resolvedPath = await realpath(sourcePath);
+        const relativePath = relative(publicDirectory, resolvedPath);
+        if (relativePath.startsWith(`..${sep}`) || relativePath === '..' || resolve(publicDirectory, relativePath) !== resolvedPath) {
+          throw new Error(`Allowlisted demo asset escapes public/: ${safePath}`);
+        }
+        const stats = await lstat(sourcePath);
+        if (!stats.isFile()) throw new Error(`Allowlisted demo asset is not a regular file: public/${safePath}`);
+        let source: Buffer;
+        try {
+          source = await readFile(sourcePath);
+        } catch (error) {
+          throw new Error(`Allowlisted demo asset is missing: public/${safePath}`, { cause: error });
+        }
+        this.emitFile({ type: 'asset', fileName: safePath, source });
+      }
+    },
+  };
+}
+
 export default defineConfig(({ command }) => ({
-  plugins: [react(), localApiProxyOriginPlugin(), cloudflarePagesHeadersPlugin()],
-  // User-provided demo tracks remain available to local dev, but production builds
-  // must opt in after the source/model-derived asset publication review is complete.
-  publicDir: command === 'serve' || process.env.ARVC_DEMO_ASSETS_PUBLICATION_APPROVED === 'true' ? 'public' : false,
+  plugins: [react(), localApiProxyOriginPlugin(), cloudflarePagesHeadersPlugin(), approvedDemoAssetsPlugin()],
+  // Serve local public assets during development; production copies only the explicit allowlist.
+  publicDir: command === 'serve' ? 'public' : false,
   server: {
     host: '127.0.0.1',
     proxy: {

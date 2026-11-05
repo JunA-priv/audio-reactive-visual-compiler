@@ -2,12 +2,25 @@ import { access, readFile, readdir } from 'node:fs/promises';
 import { Console } from 'node:console';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
-import { join } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
+import { assertSafeDemoAssetPath, demoPublicationAllowlist } from './demo-publication-allowlist.mjs';
 
 const logger = new Console(process.stdout, process.stderr);
 const distDirectory = fileURLToPath(new URL('../dist/', import.meta.url));
 const headersPath = join(distDirectory, '_headers');
 const expectedHeaders = '/*\n  Referrer-Policy: no-referrer\n';
+const expectedDemoAssets = new Set(demoPublicationAllowlist.map(assertSafeDemoAssetPath));
+
+async function listFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await listFiles(fullPath));
+    else if (entry.isFile()) files.push(relative(distDirectory, fullPath).split(sep).join('/'));
+  }
+  return files;
+}
 
 function fail(message) {
   logger.error(`Cloudflare Pages build verification failed: ${message}`);
@@ -21,8 +34,25 @@ try {
   await access(join(distDirectory, 'index.html'));
   const entries = await readdir(distDirectory, { withFileTypes: true });
   if (entries.some((entry) => entry.name === '404.html')) fail('dist/404.html would override the Pages SPA fallback.');
-  if (entries.some((entry) => entry.name === 'demo')) fail('dist contains unapproved demo assets.');
-  if (entries.some((entry) => /\.(wav|mp3)$/i.test(entry.name))) fail('dist contains an unapproved demo audio asset.');
+
+  const files = await listFiles(distDirectory);
+  for (const assetPath of expectedDemoAssets) {
+    try {
+      await access(resolve(distDirectory, assetPath));
+    } catch {
+      fail(`allowlisted demo asset is missing: ${assetPath}`);
+    }
+  }
+  for (const assetPath of files) {
+    const isRestrictedAsset = /\.(wav|mp3|ogg|flac|m4a|json)$/i.test(assetPath);
+    if (isRestrictedAsset && !expectedDemoAssets.has(assetPath)) {
+      fail(`dist contains a non-allowlisted audio or JSON asset: ${assetPath}`);
+    }
+  }
+  const emittedDemoAssets = new Set(files.filter((assetPath) => assetPath.startsWith('demo/')));
+  if (emittedDemoAssets.size !== expectedDemoAssets.size || [...emittedDemoAssets].some((assetPath) => !expectedDemoAssets.has(assetPath))) {
+    fail('dist/demo does not exactly match the demo publication allowlist.');
+  }
 
   const assetsDirectory = join(distDirectory, 'assets');
   const assets = await readdir(assetsDirectory);
