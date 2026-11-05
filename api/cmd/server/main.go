@@ -216,6 +216,12 @@ func main() {
 				}
 				os.Exit(1)
 			}
+			if err := audioBudget.VerifyEnvironment(context.Background(), authMode); err != nil {
+				authValidator.Close()
+				audioBudget.Close()
+				slog.Error("audio analysis environment does not match database policy")
+				os.Exit(1)
+			}
 			analysisThreads, threadErr := resolveAnalysisThreads(os.Getenv("AUDIO_ANALYSIS_THREADS"))
 			if threadErr != nil {
 				authValidator.Close()

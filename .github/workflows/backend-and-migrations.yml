@@ -86,6 +86,7 @@ jobs:
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50d-audio-job-idempotency.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50e-audio-job-dispatch.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k52-audio-storage.sql
+          docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k56-beta-entitlements.sql
           for invariant in \
             supabase/verification/step7b-privilege-invariants.sql \
             supabase/verification/step7g-ai-budget-privilege-invariants.sql \

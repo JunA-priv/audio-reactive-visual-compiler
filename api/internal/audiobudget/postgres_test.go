@@ -52,3 +52,12 @@ func TestResultMappingFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyEnvironmentRejectsInvalidModeAndMissingStore(t *testing.T) {
+	if err := (*Postgres)(nil).VerifyEnvironment(t.Context(), "hosted"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("nil store VerifyEnvironment error=%v", err)
+	}
+	if err := (*Postgres)(nil).VerifyEnvironment(t.Context(), "production"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("invalid environment VerifyEnvironment error=%v", err)
+	}
+}

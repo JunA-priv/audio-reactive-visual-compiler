@@ -113,6 +113,22 @@ func (p *Postgres) Close() {
 	}
 }
 
+// VerifyEnvironment binds the DB admission controls to the server's explicit
+// local/hosted trust mode. A mismatch fails startup before protected routes are
+// registered, rather than allowing an entitlement scoped for another target.
+func (p *Postgres) VerifyEnvironment(ctx context.Context, environment string) error {
+	if p == nil || p.pool == nil || (environment != "local" && environment != "hosted") {
+		return ErrUnavailable
+	}
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+	var matches bool
+	if err := p.pool.QueryRow(ctx, `SELECT arvc_internal.audio_analysis_environment_matches($1)`, environment).Scan(&matches); err != nil || !matches {
+		return ErrUnavailable
+	}
+	return nil
+}
+
 func (p *Postgres) Reserve(ctx context.Context, userID string) (Reservation, error) {
 	if p == nil || p.pool == nil {
 		return Reservation{}, ErrUnavailable

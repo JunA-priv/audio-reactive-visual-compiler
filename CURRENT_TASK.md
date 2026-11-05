@@ -1,4 +1,10 @@
-# CURRENT_TASK — Step 7k-55：Hosted Supabase互換性修正
+# CURRENT_TASK — Step 7k-56：Hosted移行前統合・招待制β版アカウント制御
+
+**Status: implementation in progress —** Step 7k-55の成果は開始時点でcleanなmain commit `2ddd35f`に統合済み。feature branchでAudio entitlementの`standard`/`beta` tierと`local`/`hosted` scopeを追加し、betaのみユーザー日次/月次countを迂回しつつservice caps、burst、concurrency、60秒/16MiB、queue/storage上限、権限境界、kill switchを維持するforward migration・Go startup environment check・隔離SQL検証を実装。Auth招待・β終了・正式版upgrade/JWT期限の手順を記録中。Hosted/GCP/Production操作なし。migration/Go/CI/PR検証は未完了。詳細：[Step 7k-56 report](docs/reports/2026-11-05-step7k-56-beta-hosted-release-candidate.md)。
+
+---
+
+# HISTORICAL — Step 7k-55：Hosted Supabase互換性修正
 
 **Status: completed（ローカル実装・隔離検証まで。Hosted/GCP/GitHub未適用）—** Storage key kind別header、Free IPv4 Session Pooler専用role/project-ref/TLS検証、017/018初回baseline方針、migration manifest/dry-run fail-closed workflow、local fixture Hosted拒否、8時間read-only OIDC DB healthcheckと通知/費用運用を実装。Go対象package race/vet/build、静的migration/workflowガードPASS。隔離DB 23 migrations read-only確認。Hosted接続/GCP資源/production CIは未実施。公開はHosted/課金設定と実CLI/Hosted相当dry-run確認までNO-GO。詳細：[Step 7k-55 report](docs/reports/2026-11-05-step7k-55-hosted-supabase-compatibility.md)。
 
