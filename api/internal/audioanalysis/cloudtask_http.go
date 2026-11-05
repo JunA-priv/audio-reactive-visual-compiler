@@ -81,7 +81,9 @@ func (j *JobAPI) RegisterDispatchWake(e *echo.Echo, auth TaskAuthenticator) {
 		}
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
 		defer cancel()
-		if err := j.dispatcher.Dispatch(ctx); err != nil {
+		dispatchErr := j.dispatcher.Dispatch(ctx)
+		cleanupErr := j.CleanupStorage(ctx, 50)
+		if dispatchErr != nil || cleanupErr != nil {
 			return c.NoContent(http.StatusServiceUnavailable)
 		}
 		return c.NoContent(http.StatusNoContent)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,61 @@ type fakeJobStore struct {
 	quotaReleases  int
 	quotaJobID     string
 	quotaAttempt   int
+}
+
+type fakeStorageJobStore struct {
+	*fakeJobStore
+	intentID  string
+	objectKey string
+	stored    bool
+}
+
+func (s *fakeStorageJobStore) CreateStorageIntent(_ context.Context, user, key string, hash []byte, jobID string, size int, gate string) (string, string, string, error) {
+	if user != "00000000-0000-4000-8000-000000000001" || key == "" || len(hash) != 32 || size != 100 || gate != "soft" {
+		return "", "", "", errors.New("invalid test intent")
+	}
+	s.intentID = jobID
+	s.objectKey = user + "/" + jobID + ".wav"
+	return "upload", jobID, s.objectKey, nil
+}
+func (s *fakeStorageJobStore) SubmitStored(_ context.Context, user, key string, hash []byte, jobID, gate string) (string, bool, error) {
+	if !s.stored || jobID != s.intentID {
+		return "", false, errors.New("submit before Storage write")
+	}
+	s.submittedUser = user
+	s.submittedKey = key
+	s.job.KickGateMode = gate
+	return "job-storage", false, nil
+}
+func (*fakeStorageJobStore) ClaimedObject(context.Context, string, int) (string, []byte, error) {
+	return "", nil, nil
+}
+func (*fakeStorageJobStore) ClaimStorageCleanup(context.Context, int) ([]string, error) {
+	return nil, nil
+}
+func (*fakeStorageJobStore) FinishStorageCleanup(context.Context, string) error        { return nil }
+func (*fakeStorageJobStore) RetryStorageCleanup(context.Context, string, string) error { return nil }
+
+type fakeAudioStorage struct {
+	data    []byte
+	key     string
+	deleted []string
+}
+
+func (s *fakeAudioStorage) Put(_ context.Context, key string, data []byte) error {
+	s.key = key
+	s.data = append([]byte(nil), data...)
+	return nil
+}
+func (s *fakeAudioStorage) Get(_ context.Context, key string) ([]byte, error) {
+	if key != s.key {
+		return nil, audiojobs.ErrNotFound
+	}
+	return append([]byte(nil), s.data...), nil
+}
+func (s *fakeAudioStorage) Delete(_ context.Context, key string) error {
+	s.deleted = append(s.deleted, key)
+	return nil
 }
 
 func (s *fakeJobStore) Submit(_ context.Context, user, key string, _ []byte, audio []byte, gate string) (string, bool, error) {
@@ -188,6 +244,57 @@ func TestAudioJobSubmitPersistsVerifiedOwnerWithoutChargingWaiter(t *testing.T) 
 	if admission.reserveCalls != 0 {
 		t.Fatalf("waiting job consumed execution quota: reserve calls=%d", admission.reserveCalls)
 	}
+}
+
+func TestAudioJobSubmitStoresPrivateObjectBeforeRegisteringJob(t *testing.T) {
+	store := &fakeStorageJobStore{fakeJobStore: &fakeJobStore{job: audiojobs.Job{ID: "job-storage"}}}
+	storage := &fakeAudioStorage{}
+	analysis, err := NewHandler(Config{TempDirectory: t.TempDir(), Timeout: time.Second, Prober: fakeProber{info: validInfo()}, Runner: &fakeRunner{}, Admission: &fakeAdmission{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api, err := NewJobAPI(analysis, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.SetStorage(storage)
+	e := echo.New()
+	auth := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			c.SetRequest(c.Request().WithContext(authn.ContextWithPrincipal(c.Request().Context(), authn.Principal{Subject: "00000000-0000-4000-8000-000000000001"})))
+			return next(c)
+		}
+	}
+	api.Register(e, auth)
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, err := form.CreateFormFile("audio", "clip.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write(make([]byte, 100))
+	_ = form.WriteField("kickGateMode", "soft")
+	_ = form.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/audio/jobs", &body)
+	req.Header.Set(echo.HeaderContentType, form.FormDataContentType())
+	req.Header.Set("Idempotency-Key", "storage-request")
+	serverStore := &orderedStorageFake{fakeStorageJobStore: store, storage: storage}
+	api.store = serverStore
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted || store.submittedUser != "00000000-0000-4000-8000-000000000001" || storage.key != store.objectKey || len(storage.data) != 100 {
+		t.Fatalf("Storage-backed submission failed: status=%d key=%q body=%s", rec.Code, storage.key, rec.Body.String())
+	}
+}
+
+type orderedStorageFake struct {
+	*fakeStorageJobStore
+	storage *fakeAudioStorage
+}
+
+func (s *orderedStorageFake) SubmitStored(ctx context.Context, user, key string, hash []byte, jobID, gate string) (string, bool, error) {
+	s.fakeStorageJobStore.stored = len(s.storage.data) > 0
+	return s.fakeStorageJobStore.SubmitStored(ctx, user, key, hash, jobID, gate)
 }
 
 func TestJobMultipartPreservesGateAndAudio(t *testing.T) {

@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - 'frontend/**'
+      - 'api/**'
+      - 'supabase/**'
       - '.github/workflows/frontend.yml'
   pull_request:
     paths:
       - 'frontend/**'
+      - 'api/**'
+      - 'supabase/**'
       - '.github/workflows/frontend.yml'
 
 permissions:

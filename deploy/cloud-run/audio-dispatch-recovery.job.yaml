@@ -1,0 +1,19 @@
+# Apply once as a separately approved infrastructure change. Scheduler OIDC identity
+# gets run.invoker on API; endpoint also verifies issuer, audience and exact email.
+name: projects/PROJECT_ID/locations/REGION/jobs/arvc-audio-dispatch-recovery
+schedule: "*/2 * * * *"
+timeZone: Etc/UTC
+httpTarget:
+  uri: https://API_SERVICE_URL/internal/jobs/dispatch
+  httpMethod: POST
+  oidcToken:
+    serviceAccountEmail: arvc-scheduler@PROJECT_ID.iam.gserviceaccount.com
+    audience: https://API_SERVICE_URL
+  headers:
+    Content-Type: application/json
+  body: e30=
+retryConfig:
+  retryCount: 3
+  minBackoffDuration: 30s
+  maxBackoffDuration: 300s
+  maxDoublings: 3

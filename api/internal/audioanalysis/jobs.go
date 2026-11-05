@@ -23,10 +23,12 @@ import (
 type JobAPI struct {
 	analysis   *Handler
 	store      audiojobs.Store
+	storage    audiojobs.ObjectStorage
 	dispatcher interface{ Dispatch(context.Context) error }
 }
 
 func (j *JobAPI) SetDispatcher(d interface{ Dispatch(context.Context) error }) { j.dispatcher = d }
+func (j *JobAPI) SetStorage(s audiojobs.ObjectStorage)                         { j.storage = s }
 
 type jobQuota interface {
 	ReserveForJob(context.Context, string, int, string) (string, error)
@@ -115,7 +117,33 @@ func (j *JobAPI) submit(c *echo.Context) error {
 	if err != nil || int64(len(audio)) != inputBytes {
 		return writeError(c, http.StatusInternalServerError, "analysis_unavailable", "audio analysis could not start")
 	}
-	id, existing, err := j.store.Submit(ctx, principal.Subject, key, audiojobs.HashPayload(audio, gate), audio, gate)
+	hash := audiojobs.HashPayload(audio, gate)
+	var id string
+	var existing bool
+	if j.storage != nil {
+		stored, ok := j.store.(audiojobs.StorageJobStore)
+		if !ok {
+			return writeError(c, http.StatusServiceUnavailable, "analysis_control_unavailable", "audio analysis is temporarily unavailable")
+		}
+		candidate, idErr := audiojobs.NewJobUUID()
+		if idErr != nil {
+			return writeError(c, http.StatusServiceUnavailable, "analysis_control_unavailable", "audio analysis is temporarily unavailable")
+		}
+		state, priorID, objectKey, intentErr := stored.CreateStorageIntent(ctx, principal.Subject, key, hash, candidate, len(audio), gate)
+		if intentErr != nil {
+			return jobAdmissionError(c, intentErr)
+		}
+		if state == "existing" || state == "existing_legacy" {
+			id, existing = priorID, true
+		} else {
+			if err := j.storage.Put(ctx, objectKey, audio); err != nil {
+				return writeError(c, http.StatusBadGateway, "audio_storage_unavailable", "audio could not be stored; retry the same request")
+			}
+			id, existing, err = stored.SubmitStored(ctx, principal.Subject, key, hash, priorID, gate)
+		}
+	} else {
+		id, existing, err = j.store.Submit(ctx, principal.Subject, key, hash, audio, gate)
+	}
 	if err != nil {
 		return jobAdmissionError(c, err)
 	}
@@ -170,6 +198,9 @@ func (j *JobAPI) cancel(c *echo.Context) error {
 	case "not_found":
 		return writeError(c, http.StatusNotFound, "job_not_found", "analysis job was not found")
 	case "canceled", "cancel_requested", "terminal":
+		if state == "canceled" {
+			_ = j.CleanupStorage(c.Request().Context(), 20)
+		}
 		job, getErr := j.store.GetStatus(c.Request().Context(), c.Param("jobID"), p.Subject)
 		if getErr != nil {
 			return jobStoreError(c, getErr)
@@ -205,7 +236,7 @@ func jobAdmissionError(c *echo.Context, err error) error {
 		return writeError(c, http.StatusServiceUnavailable, "analysis_disabled", "audio analysis is temporarily unavailable")
 	case "not_entitled":
 		return writeError(c, http.StatusForbidden, "analysis_not_entitled", "audio analysis is not enabled for this account")
-	case "queue_full", "user_queue_full":
+	case "queue_full", "user_queue_full", "user_storage_full":
 		return writeError(c, http.StatusTooManyRequests, "analysis_queue_full", "audio analysis queue is full; retry later")
 	case "idempotency_conflict":
 		return writeError(c, http.StatusConflict, "idempotency_conflict", "Idempotency-Key was already used for a different request")
@@ -242,6 +273,25 @@ func (j *JobAPI) runClaimed(parent context.Context, job audiojobs.Job) bool {
 		return false
 	}
 	jobAdmission := attemptAdmission{quota: quota, job: job}
+	if job.AudioObjectKey != "" {
+		if j.storage == nil {
+			_ = j.retry(job)
+			return false
+		}
+		audio, err := j.storage.Get(parent, job.AudioObjectKey)
+		if err != nil {
+			_ = j.retry(job)
+			return false
+		}
+		if !bytes.Equal(audiojobs.HashPayload(audio, job.KickGateMode), job.RequestHash) {
+			finishCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = j.store.FinishAttempt(finishCtx, job.ID, job.Attempt, "failed", nil, "audio_integrity_failed")
+			stop()
+			_ = j.CleanupStorage(context.Background(), 20)
+			return false
+		}
+		job.Audio = audio
+	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	finished := make(chan struct{})
@@ -273,10 +323,11 @@ func (j *JobAPI) runClaimed(parent context.Context, job audiojobs.Job) bool {
 		recorder := httptest.NewRecorder()
 		ec := echo.New().NewContext(req, recorder)
 		_ = j.analysis.analyzeWithAdmission(ec, jobAdmission)
-		if recorder.Code == http.StatusOK {
+		responseStatus := recorder.Result().StatusCode
+		if responseStatus == http.StatusOK {
 			state, code = "succeeded", ""
 			result = recorder.Body.Bytes()
-		} else if isClosed(userCancel) || recorder.Code == 499 {
+		} else if isClosed(userCancel) || responseStatus == 499 {
 			state, code = "canceled", "canceled"
 		} else if parent.Err() != nil {
 			retryCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -308,7 +359,42 @@ func (j *JobAPI) runClaimed(parent context.Context, job audiojobs.Job) bool {
 	if err := j.store.FinishAttempt(finishCtx, job.ID, job.Attempt, state, result, code); err != nil {
 		return false
 	}
+	_ = j.CleanupStorage(context.Background(), 20)
 	return true
+}
+
+func (j *JobAPI) retry(job audiojobs.Job) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return j.store.RetryAttempt(ctx, job.ID, job.Attempt)
+}
+
+func (j *JobAPI) CleanupStorage(ctx context.Context, limit int) error {
+	if j.storage == nil {
+		return nil
+	}
+	store, ok := j.store.(audiojobs.StorageJobStore)
+	if !ok {
+		return errors.New("storage cleanup store unavailable")
+	}
+	keys, err := store.ClaimStorageCleanup(ctx, limit)
+	if err != nil {
+		return err
+	}
+	var first error
+	for _, key := range keys {
+		if err := j.storage.Delete(ctx, key); err != nil {
+			_ = store.RetryStorageCleanup(context.Background(), key, "storage_delete_failed")
+			if first == nil {
+				first = err
+			}
+			continue
+		}
+		if err := store.FinishStorageCleanup(ctx, key); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 func isClosed(ch <-chan struct{}) bool {
