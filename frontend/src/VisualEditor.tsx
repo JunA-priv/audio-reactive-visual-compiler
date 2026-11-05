@@ -228,11 +228,11 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   const [rectDraft, setRectDraft] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const [layerImages, setLayerImages] = useState<Record<string, HTMLImageElement>>({});
+  const imageLoadCache = useRef(new Map<string, { src: string; promise: Promise<HTMLImageElement> }>());
   const [selectedImageLayerId, setSelectedImageLayerId] = useState<string | null>(null);
   const [imageAspectLocked, setImageAspectLocked] = useState(false);
-  const imageDrag = useRef<{ pointerId: number; startX: number; startY: number; x: number; y: number; width: number; height: number; resize: boolean } | null>(null);
-  const [imageResizeMode, setImageResizeMode] = useState(false);
-  const [imageUploadMode, setImageUploadMode] = useState<'add' | 'replace'>('add');
+  const imageDrag = useRef<{ pointerId: number; layerId: string; startX: number; startY: number; x: number; y: number; width: number; height: number; mode: 'move' | 'resize' | 'crop'; edge?: string; aspectLocked: boolean; crop?: { x: number; y: number; width: number; height: number } } | null>(null);
+  const [imageCropMode, setImageCropMode] = useState(false);
   const [imageError, setImageError] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [playbackAudioUrl, setPlaybackAudioUrl] = useState('');
@@ -354,6 +354,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     if (demoAudioRef.current) { demoAudioRef.current.pause(); demoAudioRef.current.currentTime = 0; }
     setTimeMs(0);
     setBlueprint(structuredClone(newEditorBlueprint));
+    setSelectedImageLayerId(null); setImageCropMode(false);
     setSelectedRegionId(newEditorBlueprint.regions[0]?.id ?? null);
     setSelectedEffectId(newEditorBlueprint.effects[0]?.id ?? null);
     setTimeline({ durationMs: 1, bassEnvelope: [{ timeMs: 0, value: 0 }], kickEvents: [] });
@@ -415,6 +416,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       audioAnalysisController.current?.abort(); audioAnalysisController.current = null;
       setAudioAnalysisBusy(false); setPlaying(false); setTimeMs(0); setBlueprint(hydrated.blueprint); setTimeline(hydrated.featureTimeline);
       setAudioFile(hydrated.audioFile); setExportWithAudio(Boolean(hydrated.audioFile)); setImage(restoredImage);
+      setSelectedImageLayerId(hydrated.blueprint.imageLayers?.[0]?.id ?? null); setImageCropMode(false);
       setMusicSummary(null); setSourceAudioFile(null); setSourceAudioUrl(''); setRangeSelectionOpen(false);
       setSelectedRegionId(hydrated.blueprint.regions[0]?.id ?? null); setSelectedEffectId(hydrated.blueprint.effects[0]?.id ?? null);
       setActiveCloudProject(project); setCloudTitle(project.title); setCloudStatus('クラウドプロジェクトと素材を復元しました。');
@@ -561,8 +563,22 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   useEffect(() => {
     let cancelled = false;
     const layers = blueprint.imageLayers ?? [];
-    void Promise.all(layers.map(async (layer) => [layer.id, await loadImage(layer.src)] as const)).then((loaded) => {
-      if (!cancelled) setLayerImages(Object.fromEntries(loaded));
+    const ids = new Set(layers.map((layer) => layer.id));
+    for (const id of imageLoadCache.current.keys()) if (!ids.has(id)) imageLoadCache.current.delete(id);
+    const requests = layers.map((layer) => {
+      let cached = imageLoadCache.current.get(layer.id);
+      if (!cached || cached.src !== layer.src) {
+        cached = { src: layer.src, promise: loadImage(layer.src) };
+        imageLoadCache.current.set(layer.id, cached);
+      }
+      return cached.promise.then((loaded) => [layer.id, loaded] as const);
+    });
+    void Promise.all(requests).then((loaded) => {
+      if (!cancelled) setLayerImages((current) => {
+        const next = Object.fromEntries(loaded);
+        if (Object.keys(next).length === Object.keys(current).length && loaded.every(([id, item]) => current[id] === item)) return current;
+        return next;
+      });
     }).catch(() => { if (!cancelled) setImageError('画像を読み込めませんでした。PNG/JPEGを選び直してください。'); });
     return () => { cancelled = true; };
   }, [blueprint.imageLayers]);
@@ -808,14 +824,74 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     return true;
   }
 
+  function releaseCanvasPointer(pointerId: number) {
+    const canvas = canvasRef.current;
+    try { if (canvas?.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId); } catch { /* Pointer capture may already be released. */ }
+  }
+
+  function updateImageDrag(drag: NonNullable<typeof imageDrag.current>, dx: number, dy: number) {
+    updateBlueprint((draft) => {
+      const layer = draft.imageLayers?.find((item) => item.id === drag.layerId);
+      if (!layer) return;
+      if (drag.mode === 'move') { layer.x = drag.x + dx; layer.y = drag.y + dy; return; }
+      if (drag.mode === 'crop') {
+        const sourceX = drag.crop?.x ?? 0; const sourceY = drag.crop?.y ?? 0;
+        const sourceWidth = drag.crop?.width ?? layer.sourceWidth; const sourceHeight = drag.crop?.height ?? layer.sourceHeight;
+        const fitScale = layer.fit === 'contain' ? Math.min(layer.width / sourceWidth, layer.height / sourceHeight) : layer.fit === 'cover' ? Math.max(layer.width / sourceWidth, layer.height / sourceHeight) : 1;
+        const drawnWidth = layer.fit === 'stretch' ? layer.width : sourceWidth * fitScale;
+        const drawnHeight = layer.fit === 'stretch' ? layer.height : sourceHeight * fitScale;
+        const drawnX = layer.x + (layer.width - drawnWidth) / 2; const drawnY = layer.y + (layer.height - drawnHeight) / 2;
+        const sourcePoint = (px: number, py: number) => ({ x: sourceX + (px - drawnX) / (layer.fit === 'stretch' ? layer.width / sourceWidth : fitScale), y: sourceY + (py - drawnY) / (layer.fit === 'stretch' ? layer.height / sourceHeight : fitScale) });
+        const start = sourcePoint(drag.startX, drag.startY); const end = sourcePoint(drag.startX + dx, drag.startY + dy);
+        const ax = Math.min(start.x, end.x); const ay = Math.min(start.y, end.y);
+        const bx = Math.max(start.x, end.x); const by = Math.max(start.y, end.y);
+        const x = Math.max(sourceX, Math.min(sourceX + sourceWidth - 1, ax)); const y = Math.max(sourceY, Math.min(sourceY + sourceHeight - 1, ay));
+        layer.crop = { x, y, width: Math.max(1, Math.min(sourceX + sourceWidth - x, bx - x)), height: Math.max(1, Math.min(sourceY + sourceHeight - y, by - y)) };
+        return;
+      }
+      const edge = drag.edge ?? 'se'; const ratio = drag.width / drag.height;
+      let left = drag.x; let right = drag.x + drag.width; let top = drag.y; let bottom = drag.y + drag.height;
+      if (edge.includes('w')) left += dx; if (edge.includes('e')) right += dx;
+      if (edge.includes('n')) top += dy; if (edge.includes('s')) bottom += dy;
+      let width = Math.max(1, right - left); let height = Math.max(1, bottom - top);
+      if (drag.aspectLocked) {
+        if (edge.length === 2) {
+          if (Math.abs(dx) >= Math.abs(dy * ratio)) height = width / ratio; else width = height * ratio;
+          if (edge.includes('w')) left = right - width;
+          if (edge.includes('n')) top = bottom - height;
+        } else if (edge === 'e' || edge === 'w') { height = width / ratio; top = drag.y + (drag.height - height) / 2; }
+        else { width = height * ratio; left = drag.x + (drag.width - width) / 2; }
+      }
+      layer.x = left; layer.y = top; layer.width = width; layer.height = height;
+    });
+  }
+
+  function beginImagePointer(event: PointerEvent<HTMLButtonElement>, layerId: string, mode: 'resize' | 'crop', edge?: string) {
+    event.preventDefault(); event.stopPropagation();
+    if (regionEditMode || tool !== 'select') return;
+    const layer = blueprint.imageLayers?.find((item) => item.id === layerId);
+    const canvas = canvasRef.current; const rect = canvas?.getBoundingClientRect();
+    if (!layer || !canvas || !rect || rect.width <= 0 || rect.height <= 0) return;
+    const startX = (event.clientX - rect.left) * blueprint.width / rect.width;
+    const startY = (event.clientY - rect.top) * blueprint.height / rect.height;
+    imageDrag.current = { pointerId: event.pointerId, layerId, startX, startY, x: layer.x, y: layer.y, width: layer.width, height: layer.height, mode, ...(edge ? { edge } : {}), aspectLocked: imageAspectLocked, ...(layer.crop ? { crop: { ...layer.crop } } : {}) };
+    setSelectedImageLayerId(layerId); setSelectedEffectId(null);
+    try { canvas.setPointerCapture(event.pointerId); } catch { imageDrag.current = null; }
+  }
+
   function onPointerDown(event: PointerEvent<HTMLCanvasElement>) {
     if (regionEditMode) return;
-    if (tool === 'select' && selectedImageLayer) {
+    if (tool === 'select') {
       const point = normalizedPoint(event);
       const px = point.x * blueprint.width; const py = point.y * blueprint.height;
-      if (px >= selectedImageLayer.x && px <= selectedImageLayer.x + selectedImageLayer.width && py >= selectedImageLayer.y && py <= selectedImageLayer.y + selectedImageLayer.height) {
-        imageDrag.current = { pointerId: event.pointerId, startX: px, startY: py, x: selectedImageLayer.x, y: selectedImageLayer.y, width: selectedImageLayer.width, height: selectedImageLayer.height, resize: imageResizeMode };
+      const hit = [...(blueprint.imageLayers ?? [])].reverse().find((layer) => px >= layer.x && px <= layer.x + layer.width && py >= layer.y && py <= layer.y + layer.height);
+      if (hit) {
+        setSelectedImageLayerId(hit.id);
+        setSelectedEffectId(null);
+        setRegionEditMode(false);
+        imageDrag.current = { pointerId: event.pointerId, layerId: hit.id, startX: px, startY: py, x: hit.x, y: hit.y, width: hit.width, height: hit.height, mode: imageCropMode ? 'crop' : 'move', aspectLocked: imageAspectLocked, ...(hit.crop ? { crop: { ...hit.crop } } : {}) };
         event.currentTarget.setPointerCapture(event.pointerId);
+        event.preventDefault();
         return;
       }
     }
@@ -830,15 +906,17 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     } else {
       const point = normalizedPoint(event);
       const region = [...blueprint.regions].reverse().find((item) => regionContains(item.geometry, point.x, point.y));
+      setSelectedImageLayerId(null);
       setSelectedRegionId(region?.id ?? null);
     }
   }
 
   function onPointerMove(event: PointerEvent<HTMLCanvasElement>) {
     const imageMove = imageDrag.current;
-    if (imageMove && imageMove.pointerId === event.pointerId && selectedImageLayer) {
+    if (imageMove && imageMove.pointerId === event.pointerId) {
+      event.preventDefault();
       const point = normalizedPoint(event); const dx = point.x * blueprint.width - imageMove.startX; const dy = point.y * blueprint.height - imageMove.startY;
-      updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (!layer) return; if (imageMove.resize) { const width = Math.max(1, imageMove.width + dx); layer.width = width; layer.height = imageAspectLocked ? width / (layer.sourceWidth / layer.sourceHeight) : Math.max(1, imageMove.height + dy); } else { layer.x = imageMove.x + dx; layer.y = imageMove.y + dy; } });
+      updateImageDrag(imageMove, dx, dy);
       return;
     }
     const drag = effectPositionDrag.current;
@@ -858,7 +936,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }
 
   function onPointerUp(event: PointerEvent<HTMLCanvasElement>) {
-    if (imageDrag.current?.pointerId === event.pointerId) { imageDrag.current = null; return; }
+    if (imageDrag.current?.pointerId === event.pointerId) { event.preventDefault(); imageDrag.current = null; releaseCanvasPointer(event.pointerId); return; }
     if (finishEffectPositionPointer(event)) return;
     if (finishRegionEditPointer(event)) return;
     if (!dragStart.current) return;
@@ -883,6 +961,11 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }
 
   function onPointerCancel(event: PointerEvent<HTMLCanvasElement>) {
+    if (imageDrag.current?.pointerId === event.pointerId) {
+      const drag = imageDrag.current; imageDrag.current = null;
+      updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === drag.layerId); if (layer) { layer.x = drag.x; layer.y = drag.y; layer.width = drag.width; layer.height = drag.height; if (drag.crop) layer.crop = { ...drag.crop }; else delete layer.crop; } });
+      releaseCanvasPointer(event.pointerId); return;
+    }
     if (finishEffectPositionPointer(event)) return;
     if (finishRegionEditPointer(event)) return;
     dragStart.current = null;
@@ -891,6 +974,10 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }
 
   function onLostPointerCapture(event: PointerEvent<HTMLCanvasElement>) {
+    if (imageDrag.current?.pointerId === event.pointerId) {
+      const drag = imageDrag.current; imageDrag.current = null;
+      updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === drag.layerId); if (layer) { layer.x = drag.x; layer.y = drag.y; layer.width = drag.width; layer.height = drag.height; if (drag.crop) layer.crop = { ...drag.crop }; else delete layer.crop; } });
+    }
     if (effectPositionDrag.current?.pointerId === event.pointerId) effectPositionDrag.current = null;
     if (regionEditDrag.current?.pointerId === event.pointerId) regionEditDrag.current = null;
   }
@@ -945,6 +1032,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       draft.bindings.push(bindingFor(effect.id, ['ink-diffusion', 'ink-flow', 'color-mixing'].includes(kind) ? 'music.energy' : kind === 'particle-burst' || kind === 'shockwave' ? 'kick.events' : 'bass.envelope'));
     });
     setSelectedEffectId(effect.id);
+    setSelectedImageLayerId(null);
   }
 
   function changeSelectedEffectType(kind: Effect['kind']) {
@@ -1038,15 +1126,10 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       if (loaded.naturalWidth > 20000 || loaded.naturalHeight > 20000 || loaded.naturalWidth * loaded.naturalHeight > 100_000_000) throw new Error('画像の寸法が大きすぎます。');
       return { id: `image-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`, src, x: 0, y: 0, width: blueprint.width, height: blueprint.height, sourceWidth: loaded.naturalWidth, sourceHeight: loaded.naturalHeight, fit: 'contain' as const } satisfies ImageLayer;
     })).then((layers) => {
-      updateBlueprint((draft) => {
-        if (imageUploadMode === 'replace' && selectedImageLayerId && draft.imageLayers?.some((layer) => layer.id === selectedImageLayerId)) {
-          const old = draft.imageLayers.find((layer) => layer.id === selectedImageLayerId)!;
-          draft.imageLayers[draft.imageLayers.indexOf(old)] = { ...layers[0]!, id: old.id, x: old.x, y: old.y, width: old.width, height: old.height, fit: old.fit };
-        } else {
-          draft.imageLayers = [...(draft.imageLayers ?? []), ...layers];
-        }
-      });
-      if (!(imageUploadMode === 'replace' && selectedImageLayerId)) setSelectedImageLayerId(layers.at(-1)?.id ?? null);
+      updateBlueprint((draft) => { draft.imageLayers = [...(draft.imageLayers ?? []), ...layers]; });
+      setSelectedImageLayerId(layers.at(-1)?.id ?? null);
+      setSelectedEffectId(null);
+      setRegionEditMode(false);
     }).catch((error: unknown) => setImageError(error instanceof Error ? error.message : '画像ファイルを読み込めませんでした。'));
   }
 
@@ -1194,6 +1277,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       setPlaying(false);
       setTimeMs(0);
       setBlueprint(restored.blueprint);
+      setSelectedImageLayerId(restored.blueprint.imageLayers?.[0]?.id ?? null); setImageCropMode(false);
       setTimeline(restored.featureTimeline);
       setAudioFile(restored.audioFile);
       setMusicSummary(restored.musicSummary); setSourceAudioFile(null); setSourceAudioUrl(''); setRangeSelectionOpen(false);
@@ -1314,6 +1398,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       const prepared = prepareGeneratedBlueprint(candidate);
       validateBlueprint(prepared);
       setBlueprint(prepared);
+      setSelectedImageLayerId(prepared.imageLayers?.[0]?.id ?? null); setImageCropMode(false);
       setSelectedRegionId(prepared.regions[0]?.id ?? null);
       setSelectedEffectId(prepared.effects[0]?.id ?? null);
       const mode = 'mode' in result && result.mode === 'openai' ? '生成結果' : 'サンプル設定';
@@ -1326,6 +1411,16 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   const geometryBounds = selectedRegion ? bounds(selectedRegion.geometry) : null;
   const selectedRect = selectedRegion?.geometry.kind === 'rect' ? selectedRegion.geometry : null;
   const selectedPolygonPoints = selectedRegion?.geometry.kind === 'polygon' ? selectedRegion.geometry.points : [];
+  const imageResizeHandles: Array<{ edge: string; x: number; y: number; cursor: string }> = selectedImageLayer ? [
+    { edge: 'nw', x: selectedImageLayer.x, y: selectedImageLayer.y, cursor: 'nwse-resize' },
+    { edge: 'n', x: selectedImageLayer.x + selectedImageLayer.width / 2, y: selectedImageLayer.y, cursor: 'ns-resize' },
+    { edge: 'ne', x: selectedImageLayer.x + selectedImageLayer.width, y: selectedImageLayer.y, cursor: 'nesw-resize' },
+    { edge: 'e', x: selectedImageLayer.x + selectedImageLayer.width, y: selectedImageLayer.y + selectedImageLayer.height / 2, cursor: 'ew-resize' },
+    { edge: 'se', x: selectedImageLayer.x + selectedImageLayer.width, y: selectedImageLayer.y + selectedImageLayer.height, cursor: 'nwse-resize' },
+    { edge: 's', x: selectedImageLayer.x + selectedImageLayer.width / 2, y: selectedImageLayer.y + selectedImageLayer.height, cursor: 'ns-resize' },
+    { edge: 'sw', x: selectedImageLayer.x, y: selectedImageLayer.y + selectedImageLayer.height, cursor: 'nesw-resize' },
+    { edge: 'w', x: selectedImageLayer.x, y: selectedImageLayer.y + selectedImageLayer.height / 2, cursor: 'ew-resize' },
+  ] : [];
   const regionEditHandles: Array<{ key: string; label: string; x: number; y: number; mode: RegionEditMode; edge?: RegionResizeEdge; pointIndex?: number; className?: string }> = [];
   if (regionEditMode && selectedRegion) {
     if (selectedRegion.geometry.kind === 'rect') {
@@ -1443,22 +1538,20 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             {background.kind === 'solid' && <label className="field">背景色<input aria-label="背景色" type="color" value={background.color} onChange={(event) => updateBackground({ ...background, color: event.target.value })} /></label>}
             {background.kind === 'gradient' && <div className="color-pair"><label className="field">開始色<input aria-label="グラデーションの開始色" type="color" value={background.from} onChange={(event) => updateBackground({ ...background, from: event.target.value })} /></label><label className="field">終了色<input aria-label="グラデーションの終了色" type="color" value={background.to} onChange={(event) => updateBackground({ ...background, to: event.target.value })} /></label><label className="field">角度<input aria-label="グラデーションの角度" type="number" min={0} max={360} value={background.angleDeg} onChange={(event) => updateBackground({ ...background, angleDeg: Math.min(360, Math.max(0, Number(event.target.value))) })} /></label></div>}
             {background.kind === 'image' && <label className="field">背景画像の表示方法<select aria-label="背景画像の表示方法" value={background.fit ?? 'contain'} onChange={(event) => updateBackground({ ...background, fit: event.target.value as ImageLayer['fit'] })}><option value="contain">全体を表示</option><option value="cover">キャンバスを覆う</option><option value="stretch">縦横に伸縮</option></select></label>}
-            <label className="file-button">画像を追加（PNG / JPEG）<input aria-label="背景画像を選択" type="file" accept="image/png,image/jpeg" multiple onChange={onImageSelected} /></label>
-            <div className="segmented" aria-label="画像読み込み方法"><button className={imageUploadMode === 'add' ? 'active' : ''} onClick={() => setImageUploadMode('add')}>新しい画像を追加</button><button className={imageUploadMode === 'replace' ? 'active' : ''} onClick={() => setImageUploadMode('replace')} disabled={!selectedImageLayer}>選択画像を置き換え</button></div>
-            {blueprint.imageLayers && blueprint.imageLayers.length > 0 && <div className="image-layer-controls" aria-label="画像レイヤー">
-              {blueprint.imageLayers.map((layer, index) => <div className={layer.id === selectedImageLayerId ? 'image-layer selected' : 'image-layer'} key={layer.id}><button aria-pressed={layer.id === selectedImageLayerId} onClick={() => setSelectedImageLayerId(layer.id)}>画像 {index + 1}</button><button aria-label={`画像 ${index + 1} を前面へ`} onClick={() => updateBlueprint((draft) => { const items = draft.imageLayers ?? []; const at = items.findIndex((item) => item.id === layer.id); if (at >= 0 && at < items.length - 1) [items[at], items[at + 1]] = [items[at + 1]!, items[at]!]; })}>前へ</button><button aria-label={`画像 ${index + 1} を削除`} onClick={() => { updateBlueprint((draft) => { draft.imageLayers = (draft.imageLayers ?? []).filter((item) => item.id !== layer.id); }); if (selectedImageLayerId === layer.id) setSelectedImageLayerId(null); }}>削除</button></div>)}
+            <label className="file-button">画像を追加（PNG / JPEG）<input aria-label="画像を追加" type="file" accept="image/png,image/jpeg" multiple onChange={onImageSelected} /></label>
+            {blueprint.imageLayers && blueprint.imageLayers.length > 0 && <div className="image-layer-controls item-list" aria-label="画像レイヤー">
+              {blueprint.imageLayers.map((layer, index) => <button type="button" className={layer.id === selectedImageLayerId ? 'image-layer selected' : 'image-layer'} key={layer.id} aria-label={`画像 ${index + 1}`} aria-pressed={layer.id === selectedImageLayerId} onClick={() => { setSelectedImageLayerId(layer.id); setSelectedEffectId(null); setRegionEditMode(false); }}>{`画像 ${index + 1}`}</button>)}
             </div>}
-            {selectedImageLayer && <div className="image-transform-controls">
+            {selectedImageLayer && <button className="danger-button image-delete" onClick={() => { updateBlueprint((draft) => { draft.imageLayers = (draft.imageLayers ?? []).filter((item) => item.id !== selectedImageLayer.id); }); setSelectedImageLayerId(null); setImageCropMode(false); }}>選択中の画像を削除</button>}
+            {selectedImageLayer && <details className="editor-accordion image-settings">
+              <summary><span>画像設定</span><span className="accordion-hint">アスペクト比・重なり・クロップ</span></summary>
+              <div className="accordion-content">
               <label className="field">表示方法<select aria-label="画像表示方法" value={selectedImageLayer.fit} onChange={(event) => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) layer.fit = event.target.value as ImageLayer['fit']; })}><option value="contain">全体を表示</option><option value="cover">キャンバスを覆う</option><option value="stretch">縦横に伸縮</option></select></label>
-              {(['x', 'y', 'width', 'height'] as const).map((key) => <label className="field" key={key}>{({ x: '位置 X', y: '位置 Y', width: '幅', height: '高さ' })[key]}<input aria-label={`画像${({ x: '位置 X', y: '位置 Y', width: '幅', height: '高さ' })[key]}`} type="number" min={key === 'width' || key === 'height' ? 1 : -20000} max={20000} value={Math.round(selectedImageLayer[key])} onChange={(event) => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) layer[key] = Number(event.target.value); })} /></label>)}
               <label className="field"><input aria-label="縦横比を固定" type="checkbox" checked={imageAspectLocked} onChange={(event) => { setImageAspectLocked(event.target.checked); const ratio = selectedImageLayer.sourceWidth / selectedImageLayer.sourceHeight; if (event.target.checked) updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) layer.height = layer.width / ratio; }); }} />縦横比を固定</label>
-              <button aria-pressed={imageResizeMode} onClick={() => setImageResizeMode(!imageResizeMode)}>{imageResizeMode ? 'ドラッグでサイズ変更中' : 'ドラッグで位置変更中'}</button>
-              <button aria-label="画像を拡大" onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) { layer.width *= 1.1; layer.height = imageAspectLocked ? layer.width / (layer.sourceWidth / layer.sourceHeight) : layer.height * 1.1; } })}>拡大</button><button aria-label="画像を縮小" onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) { layer.width *= 0.9; layer.height = imageAspectLocked ? layer.width / (layer.sourceWidth / layer.sourceHeight) : layer.height * 0.9; } })}>縮小</button>
-              <button onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) layer.crop = { x: layer.sourceWidth * 0.1, y: layer.sourceHeight * 0.1, width: layer.sourceWidth * 0.8, height: layer.sourceHeight * 0.8 }; })}>中央をクロップ（再編集）</button>
-              {selectedImageLayer.crop && (['x', 'y', 'width', 'height'] as const).map((key) => <label className="field" key={`crop-${key}`}>Crop {key}<input type="number" min={0} value={Math.round(selectedImageLayer.crop?.[key] ?? 0)} onChange={(event) => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer?.crop) layer.crop[key] = Number(event.target.value); })} /></label>)}
-              <button onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) { layer.x = 0; layer.y = 0; layer.width = draft.width; layer.height = draft.height; delete layer.crop; } })}>位置・サイズ・クロップをリセット</button>
-              <button onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) delete layer.crop; })}>クロップ解除</button>
-            </div>}
+              <div className="image-layer-order"><button onClick={() => updateBlueprint((draft) => { const items = draft.imageLayers ?? []; const at = items.findIndex((item) => item.id === selectedImageLayer.id); if (at >= 0 && at < items.length - 1) [items[at], items[at + 1]] = [items[at + 1]!, items[at]!]; })}>レイヤーを前面へ</button><button onClick={() => updateBlueprint((draft) => { const items = draft.imageLayers ?? []; const at = items.findIndex((item) => item.id === selectedImageLayer.id); if (at > 0) [items[at], items[at - 1]] = [items[at - 1]!, items[at]!]; })}>レイヤーを背面へ</button></div>
+              <div className="image-layer-order"><button aria-pressed={imageCropMode} onClick={() => setImageCropMode(!imageCropMode)}>{imageCropMode ? 'クロップ範囲の指定を終了' : selectedImageLayer.crop ? 'クロップを再編集' : 'クロップ範囲を指定'}</button>{selectedImageLayer.crop && <button onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) delete layer.crop; })}>クロップ解除</button>}</div>
+              </div>
+            </details>}
             {background.kind === 'image' && <button className="quiet-button" onClick={() => updateBackground({ kind: 'solid', color: '#141824' })}>画像を削除</button>}
             {imageError && <p role="alert" className="field-error">{imageError}</p>}
           </section>
@@ -1501,7 +1594,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             {regionEditMode && <p className="region-edit-help">{selectedRect ? '範囲編集：中央をドラッグして移動、辺や角をドラッグして大きさを変更します。エフェクト位置の編集は一時停止します。' : '範囲編集：頂点をドラッグして形を変更します。エフェクト位置の編集は一時停止します。'}</p>}
             {tool === 'polygon' && <div className="inline-actions"><span>{polygonDraft.length} 点</span><button disabled={polygonDraft.length < 3} onClick={createPolygon}>多角形を確定</button><button onClick={() => setPolygonDraft([])}>クリア</button></div>}
             {regionError && <p role="alert" className="field-error">{regionError}</p>}
-            <ul className="item-list">{blueprint.regions.map((region) => <li key={region.id}><button className={selectedRegionId === region.id ? 'selected' : ''} onClick={() => { setRegionEditMode(false); setSelectedRegionId(region.id); }}>{regionDisplayName(region.name)}<small>{region.geometry.kind === 'rect' ? '四角形' : '多角形'}</small></button></li>)}</ul>
+            <ul className="item-list">{blueprint.regions.map((region) => <li key={region.id}><button className={selectedRegionId === region.id ? 'selected' : ''} onClick={() => { setRegionEditMode(false); setSelectedImageLayerId(null); setSelectedRegionId(region.id); }}>{regionDisplayName(region.name)}<small>{region.geometry.kind === 'rect' ? '四角形' : '多角形'}</small></button></li>)}</ul>
             {selectedRegion && geometryBounds && <div className="geometry-fields">
               {selectedRect ? <>
                 {(['x', 'y', 'width', 'height'] as const).map((key) => <label className="field compact" key={key}>{key}<input aria-label={`範囲 ${key}`} type="number" min={0} max={1} step={0.01} value={selectedRect[key]} onChange={(event) => updateRegionGeometry({ ...selectedRect, [key]: Number(event.target.value) })} /></label>)}
@@ -1517,7 +1610,12 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
           <div className="canvas-card">
             <div className="canvas-toolbar"><span>プレビュー · {blueprint.width} × {blueprint.height}</span><span>{regionEditMode && selectedRegion ? `${regionDisplayName(selectedRegion.name)}を編集中` : tool === 'select' && selectedEffect && selectedEffectPosition ? `${titleFor(selectedEffect.kind)}の位置をドラッグして調整` : '音に反応：Bass・Kick'}</span></div>
             <div className="preview-canvas-wrap">
-              <canvas ref={canvasRef} width={blueprint.width} height={blueprint.height} aria-label="映像プレビュー" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onLostPointerCapture={onLostPointerCapture} />
+              <canvas ref={canvasRef} className={selectedImageLayer && tool === 'select' && !regionEditMode ? 'image-direct-edit' : undefined} width={blueprint.width} height={blueprint.height} aria-label="映像プレビュー" onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onLostPointerCapture={onLostPointerCapture} />
+              {!regionEditMode && tool === 'select' && selectedImageLayer && <>
+                <div className="image-selection-outline" style={{ left: percent(selectedImageLayer.x / blueprint.width), top: percent(selectedImageLayer.y / blueprint.height), width: percent(selectedImageLayer.width / blueprint.width), height: percent(selectedImageLayer.height / blueprint.height) }} aria-hidden="true" />
+                {imageCropMode && selectedImageLayer.crop && <div className="image-crop-outline" style={{ left: percent((selectedImageLayer.x + selectedImageLayer.crop.x / selectedImageLayer.sourceWidth * selectedImageLayer.width) / blueprint.width), top: percent((selectedImageLayer.y + selectedImageLayer.crop.y / selectedImageLayer.sourceHeight * selectedImageLayer.height) / blueprint.height), width: percent(selectedImageLayer.crop.width / selectedImageLayer.sourceWidth * selectedImageLayer.width / blueprint.width), height: percent(selectedImageLayer.crop.height / selectedImageLayer.sourceHeight * selectedImageLayer.height / blueprint.height) }} aria-label="現在のクロップ範囲" />}
+                {imageResizeHandles.map((handle) => <button key={handle.edge} type="button" className="image-resize-handle" style={{ left: percent(handle.x / blueprint.width), top: percent(handle.y / blueprint.height), cursor: handle.cursor }} aria-label={`選択画像のサイズ変更 ${handle.edge}`} onPointerDown={(event) => beginImagePointer(event, selectedImageLayer.id, 'resize', handle.edge)} />)}
+              </>}
               {regionEditMode && selectedRegion && <>
                 <svg className="region-edit-outline" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true">
                   {selectedRegion.geometry.kind === 'rect'
@@ -1562,7 +1660,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             <div className="global-gradient-panel"><h3>共通カラー</h3><p>すべてのエフェクトに使う色の変化を設定します。</p>{(['startColor', 'middleColor', 'endColor'] as const).map((key) => <label className="field" key={key}>{key === 'startColor' ? '開始色' : key === 'middleColor' ? '中間色' : '終了色'}<input aria-label={`共通カラー ${key}`} type="color" value={(blueprint.globalGradient ?? DEFAULT_GLOBAL_GRADIENT)[key]} onChange={(event) => updateGlobalGradient(key, event.target.value)} /></label>)}<label className="field">色の向き<input aria-label="共通カラーの向き" type="number" min={0} max={360} value={(blueprint.globalGradient ?? DEFAULT_GLOBAL_GRADIENT).angleDeg} onChange={(event) => updateGlobalGradient('angleDeg', Number(event.target.value))} /></label></div>
             {variant === 'app' && <label className="field kick-gate-mode">Kick Detection Gate Mode<select aria-label="Kick Detection Gate Mode" value={kickGateMode} disabled={audioAnalysisBusy} onChange={(event) => setKickGateMode(event.target.value as KickGateMode)}><option value="off">Off</option><option value="soft">Soft</option><option value="middle">Middle</option><option value="hard">Hard</option></select><small>Kick検出の感度を設定します。変更は次回の音声解析時に反映されます。</small></label>}
             <div className="effect-editor">
-              <div className="effect-list" aria-label="エフェクト一覧">{blueprint.effects.map((effect) => <button key={effect.id} aria-pressed={selectedEffectId === effect.id} className={selectedEffectId === effect.id ? 'selected' : ''} onClick={() => { setRegionEditMode(false); setSelectedEffectId(effect.id); }}><span className="swatch" style={{ background: effect.color }} />{titleFor(effect.kind)}<small>{blueprint.regions.find((region) => region.id === effect.regionId)?.name ? regionDisplayName(blueprint.regions.find((region) => region.id === effect.regionId)!.name) : '範囲なし'}</small></button>)}</div>
+              <div className="effect-list" aria-label="エフェクト一覧">{blueprint.effects.map((effect) => <button key={effect.id} aria-pressed={selectedEffectId === effect.id} className={selectedEffectId === effect.id ? 'selected' : ''} onClick={() => { setRegionEditMode(false); setSelectedImageLayerId(null); setSelectedEffectId(effect.id); }}><span className="swatch" style={{ background: effect.color }} />{titleFor(effect.kind)}<small>{blueprint.regions.find((region) => region.id === effect.regionId)?.name ? regionDisplayName(blueprint.regions.find((region) => region.id === effect.regionId)!.name) : '範囲なし'}</small></button>)}</div>
               {selectedEffect ? <div className="effect-fields">
                 <label className="field">分類<select aria-label="エフェクトの分類" value={editCategory} onChange={(event) => { const category = event.target.value as EffectCategory; setEditCategory(category); setEditTypeChoice((EFFECTS_BY_CATEGORY[category] as readonly Effect['kind'][]).includes(selectedEffect.kind) ? selectedEffect.kind : ''); }}>
                   {EFFECT_CATEGORIES.map((category) => <option key={category} value={category}>{({ 'Core / Transform': '基本・変形', Waveform: '波形', 'EQ / Spectrum': '周波数', 'Circular / Radial': '円形・放射', Particles: '粒子', Impacts: '衝撃', 'Ambient / Atmospheric': '雰囲気' } as Record<string, string>)[category] ?? category}</option>)}</select></label>

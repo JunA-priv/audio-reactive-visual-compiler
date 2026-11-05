@@ -325,6 +325,81 @@ describe('VisualEditor interactions', () => {
     act(() => root.unmount());
   });
 
+  it('lets demo image layers select, move, resize with aspect lock, and removes form controls', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext().context);
+    class MockImage {
+      naturalWidth = 400; naturalHeight = 200; width = 400; height = 200;
+      onload: (() => void) | null = null; onerror: (() => void) | null = null;
+      set src(_value: string) { queueMicrotask(() => this.onload?.()); }
+    }
+    vi.stubGlobal('Image', MockImage);
+    class MockFileReader {
+      result: string | ArrayBuffer | null = null; onload: (() => void) | null = null; onerror: (() => void) | null = null;
+      readAsDataURL() { this.result = 'data:image/png;base64,AAAA'; queueMicrotask(() => this.onload?.()); }
+    }
+    vi.stubGlobal('FileReader', MockFileReader);
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host); act(() => root.render(<VisualEditor variant="demo" />));
+    const input = host.querySelector<HTMLInputElement>('[aria-label="画像を追加"]')!;
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['a'], 'portrait.png', { type: 'image/png' }), new File(['b'], 'landscape.png', { type: 'image/png' })] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 10)); });
+    expect(host.querySelector('[aria-label="画像 1"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="画像位置 X"]')).toBeNull();
+    expect(host.querySelector('[aria-label="画像幅"]')).toBeNull();
+    const layerOne = host.querySelector<HTMLButtonElement>('[aria-label="画像 1"]')!;
+    const layerTwo = host.querySelector<HTMLButtonElement>('[aria-label="画像 2"]')!;
+    act(() => layerOne.click());
+    const canvas = host.querySelector<HTMLCanvasElement>('[aria-label="映像プレビュー"]')!;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 10, top: 20, width: 320, height: 180, right: 330, bottom: 200, x: 10, y: 20, toJSON() {} });
+    const captured = new Set<number>();
+    Object.defineProperties(canvas, { setPointerCapture: { configurable: true, value: (id: number) => captured.add(id) }, hasPointerCapture: { configurable: true, value: (id: number) => captured.has(id) }, releasePointerCapture: { configurable: true, value: (id: number) => captured.delete(id) } });
+    const pointer = (type: string, x: number, y: number, pointerId = 1) => { const event = new Event(type, { bubbles: true, cancelable: true }); Object.defineProperties(event, { clientX: { value: x }, clientY: { value: y }, pointerId: { value: pointerId } }); return event; };
+    act(() => canvas.dispatchEvent(pointer('pointerdown', 60, 70, 5)));
+    act(() => canvas.dispatchEvent(pointer('pointerup', 60, 70, 5)));
+    expect(layerTwo.getAttribute('aria-pressed')).toBe('true');
+    act(() => canvas.dispatchEvent(pointer('pointerdown', 60, 70)));
+    act(() => canvas.dispatchEvent(pointer('pointermove', 85, 80)));
+    act(() => canvas.dispatchEvent(pointer('pointerup', 85, 80)));
+    expect(host.querySelector<HTMLElement>('.image-selection-outline')?.style.left).toBe('7.813%');
+    const east = host.querySelector<HTMLButtonElement>('[aria-label="選択画像のサイズ変更 e"]')!;
+    const eastX = 10 + Number(east.style.left.replace('%', '')) * 320 / 100;
+    const eastY = 20 + Number(east.style.top.replace('%', '')) * 180 / 100;
+    act(() => east.dispatchEvent(pointer('pointerdown', eastX, eastY, 6)));
+    act(() => canvas.dispatchEvent(pointer('pointermove', eastX + 10, eastY, 6)));
+    act(() => canvas.dispatchEvent(pointer('pointerup', eastX + 10, eastY, 6)));
+    const unlockedOutline = host.querySelector<HTMLElement>('.image-selection-outline')!;
+    expect((Number(unlockedOutline.style.width.replace('%', '')) * 640) / (Number(unlockedOutline.style.height.replace('%', '')) * 360)).not.toBeCloseTo(2);
+    act(() => host.querySelector<HTMLInputElement>('[aria-label="縦横比を固定"]')!.click());
+    const lockedOutline = host.querySelector<HTMLElement>('.image-selection-outline')!;
+    expect((Number(lockedOutline.style.width.replace('%', '')) * 640) / (Number(lockedOutline.style.height.replace('%', '')) * 360)).toBeCloseTo(2);
+    const southEast = host.querySelector<HTMLButtonElement>('[aria-label="選択画像のサイズ変更 se"]')!;
+    const handleX = 10 + Number(southEast.style.left.replace('%', '')) * 320 / 100;
+    const handleY = 20 + Number(southEast.style.top.replace('%', '')) * 180 / 100;
+    act(() => southEast.dispatchEvent(pointer('pointerdown', handleX, handleY, 2)));
+    act(() => canvas.dispatchEvent(pointer('pointermove', handleX + 20, handleY + 10, 2)));
+    act(() => canvas.dispatchEvent(pointer('pointerup', handleX + 20, handleY + 10, 2)));
+    const outline = host.querySelector<HTMLElement>('.image-selection-outline')!;
+    expect((Number(outline.style.width.replace('%', '')) * 640) / (Number(outline.style.height.replace('%', '')) * 360)).toBeCloseTo(2);
+    expect(host.querySelector('[aria-label="画像 2"]')).not.toBeNull();
+    expect([...host.querySelectorAll('button')].some((button) => button.textContent?.includes('クロップ範囲を指定'))).toBe(true);
+    act(() => host.querySelector<HTMLDetailsElement>('.image-settings')!.querySelector('summary')!.dispatchEvent(new Event('click', { bubbles: true })));
+    act(() => [...host.querySelectorAll<HTMLButtonElement>('.image-settings button')].find((button) => button.textContent?.includes('クロップ範囲を指定'))!.click());
+    act(() => canvas.dispatchEvent(pointer('pointerdown', 60, 70, 3)));
+    act(() => canvas.dispatchEvent(pointer('pointermove', 110, 100, 3)));
+    act(() => canvas.dispatchEvent(pointer('pointercancel', 110, 100, 3)));
+    expect(host.querySelector('.image-crop-outline')).toBeNull();
+    act(() => canvas.dispatchEvent(pointer('pointerdown', 60, 70, 4)));
+    act(() => canvas.dispatchEvent(pointer('pointermove', 110, 100, 4)));
+    act(() => canvas.dispatchEvent(pointer('pointerup', 110, 100, 4)));
+    expect(host.querySelector('.image-crop-outline')).not.toBeNull();
+    act(() => [...host.querySelectorAll<HTMLButtonElement>('.image-layer-order button')].find((button) => button.textContent?.includes('レイヤーを背面へ'))!.click());
+    expect(host.querySelector<HTMLButtonElement>('.image-layer-controls button[aria-pressed="true"]')?.getAttribute('aria-label')).toBe('画像 1');
+    act(() => host.querySelector<HTMLButtonElement>('.image-delete')!.click());
+    expect(host.querySelectorAll('.image-layer-controls button')).toHaveLength(1);
+    expect(host.querySelector('[aria-label="画像 2"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
   it('provides position handles for the center-based kinds and 粒子バースト origin', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext().context);
     const host = document.createElement('div'); document.body.append(host);
