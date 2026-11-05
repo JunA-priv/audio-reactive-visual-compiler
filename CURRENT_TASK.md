@@ -1,3 +1,11 @@
+# CURRENT_TASK — Step 7k-57b：Hosted Supabase移行前ブロッカー解消
+
+**Status: partial / ローカル変更・fresh DB/CLI検証PASS、PR/CI待ち。** PR #5はGitHubでmerged（merge commit `3705bbf`、required Backend/migrations/Frontend checks success、open review threadsなし）。ローカルmainはfast-forward済み、作業は専用branch `feature/step7k57b-free-storage-cli`。Supabase CLI 2.121.0を公式release checksum検証後、repo-local ignored `.tools/`へ配置。Migrationを24→25件にし、Project Assets reservationをowner別840MiBからglobal 500MiB（owner/per-user・40 asset制限維持）へforward変更。Audio 320MiBを維持し、templateでProject routesはdisabled。専用PG17 fresh DBで25 migrations、500MiB boundary/global owner denial、既存SQL regressions、RLS/ACL/RPC invariants、CLI db lint pass。Go race/vet/build、Frontend 192 tests pass。Hosted/GCP不変更。PR作成/CI実行が未完了。詳細：[Step 7k-57b report](docs/reports/2026-11-05-step7k-57b-hosted-migration-blockers.md)。
+
+# CURRENT_TASK — Step 7k-57：Hosted Supabase Free初回移行・実環境検証準備
+
+**Status: partial / Hosted適用承認前。** Read-only調査、適用・backup・復旧計画、24 migration hash照合、Auth/Storage/DB role/β scope/workflow reviewを実施。Hosted project refは未特定、CLI 2.121.0/Hosted履歴/dry-runは未確認。Freeの1GB Storageに対し既存project-assets 840MiB + audio queue 320MiB = 約1,160MiBの上限があり、容量適合は未解決。開始時のGit refではPR #5はmainへ未merge（GitHub API接続不可）で、main CI/mergeを再確認する必要がある。Hosted/GCP/GitHub変更なし。詳細：[Step 7k-57 report](docs/reports/2026-11-05-step7k-57-hosted-supabase-first-migration-readiness.md)。
+
 # CURRENT_TASK — Step 7k-56：Hosted移行前統合・招待制β版アカウント制御
 
 **Status: completed (PR/CI success; main merge approval pending) —** Step 7k-55の成果を維持し、Audio entitlementの`standard`/`beta` tierと`local`/`hosted` scopeを追加。βtierはユーザー日次/月次countのみ迂回し、service caps、burst、concurrency、60秒/16MiB、queue/storage上限、権限境界、fencing、settlement、kill switchを維持。forward migration・Go startup environment check・isolated SQL testsとAuth招待/β終了/formal upgrade手順を追加。隔離DB・Go race/vet/build・全24 migration fresh apply/SQL regressions/db lint・Frontend CI・migration/workflow/secrets guardsがPASS。PR #5 (`feature/step7k56-beta-entitlements`, head `cd6394b46916cb3db855ce89a0eeb1ab42893eff`) open、required CI green。Hosted/GCP/Productionは未変更、main merge未実施。詳細：[Step 7k-56 report](docs/reports/2026-11-05-step7k-56-beta-hosted-release-candidate.md)。

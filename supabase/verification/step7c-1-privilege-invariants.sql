@@ -1,6 +1,9 @@
 -- Read-only checks for the Step 7c-1 ready transition boundary.
 -- Run only against the local Step 7b/7c database after migration 012 and
 -- after the local verifier role has been provisioned with LOGIN.
+-- Later queue migrations add trigger-only functions to arvc_internal. PostgreSQL
+-- rejects direct invocation of functions returning trigger, so they are not RPC
+-- entry points and are excluded from the verifier's callable-RPC allowlist.
 WITH checks(name, passed) AS (
   SELECT 'authenticated_cannot_call_legacy_ready_rpc', NOT has_function_privilege('authenticated', 'public.project_asset_mark_ready(uuid)', 'EXECUTE')
   UNION ALL SELECT 'anon_cannot_call_legacy_ready_rpc', NOT has_function_privilege('anon', 'public.project_asset_mark_ready(uuid)', 'EXECUTE')
@@ -17,6 +20,7 @@ WITH checks(name, passed) AS (
   UNION ALL SELECT 'verifier_can_execute_only_private_ready_rpc', NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname IN ('public', 'arvc_internal')
+      AND p.prorettype <> 'trigger'::regtype
       AND has_function_privilege('arvc_asset_verifier', p.oid, 'EXECUTE')
       AND p.oid <> 'arvc_internal.project_asset_mark_ready(uuid,uuid)'::regprocedure
   )

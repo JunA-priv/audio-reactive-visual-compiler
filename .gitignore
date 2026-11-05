@@ -183,6 +183,7 @@ python-island/tools/scnet-poc/external/
 # Local environment profiles and launcher state
 /config/environments/*.env
 /.run/
+/.tools/
 /frontend/.env.local
 /frontend/.env.*.local
 !/frontend/.env.local.example

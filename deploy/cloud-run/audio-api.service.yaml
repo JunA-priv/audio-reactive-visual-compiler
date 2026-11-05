@@ -31,6 +31,7 @@ spec:
             - {name: PORT, value: "8080"}
             - {name: ARVC_SERVICE_ROLE, value: api}
             - {name: AUTH_ENV, value: hosted}
+            - {name: PROJECTS_ENABLED, value: "false"}
             - {name: AI_GENERATION_ENABLED, value: "false"}
             - {name: AI_FIXTURE_UNLIMITED_LOCAL, value: "false"}
             - {name: AUDIO_ANALYSIS_ENABLED, value: "true"}
