@@ -5,9 +5,11 @@ package audiojobs
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -31,6 +33,8 @@ type Job struct {
 	CancelRequested bool   `json:"cancelRequested,omitempty"`
 	UserID          string `json:"-"`
 	Audio           []byte `json:"-"`
+	AudioObjectKey  string `json:"-"`
+	RequestHash     []byte `json:"-"`
 	KickGateMode    string `json:"-"`
 }
 
@@ -63,6 +67,25 @@ type DispatchStore interface {
 	MarkDispatchFailed(context.Context, DispatchItem, string) error
 	ClaimTask(context.Context, DispatchItem) (string, Job, error)
 	MarkDispatchDone(context.Context, DispatchItem) error
+}
+
+type StorageJobStore interface {
+	CreateStorageIntent(context.Context, string, string, []byte, string, int, string) (string, string, string, error)
+	SubmitStored(context.Context, string, string, []byte, string, string) (string, bool, error)
+	ClaimedObject(context.Context, string, int) (string, []byte, error)
+	ClaimStorageCleanup(context.Context, int) ([]string, error)
+	FinishStorageCleanup(context.Context, string) error
+	RetryStorageCleanup(context.Context, string, string) error
+}
+
+func NewJobUUID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 func NewPostgres(ctx context.Context, dsn string) (*Postgres, error) {
@@ -162,7 +185,112 @@ func (p *Postgres) ClaimTask(ctx context.Context, i DispatchItem) (string, Job, 
 		return "", Job{}, ErrUnavailable
 	}
 	j := Job{ID: id.String, UserID: user.String, Audio: audio, KickGateMode: gate.String, Attempt: int(attempt.Int32)}
+	if j.ID != "" && j.Attempt > 0 {
+		j.AudioObjectKey, j.RequestHash, err = p.ClaimedObject(ctx, j.ID, j.Attempt)
+		if err != nil {
+			return "", Job{}, err
+		}
+	}
 	return result, j, nil
+}
+
+func (p *Postgres) CreateStorageIntent(ctx context.Context, userID, key string, hash []byte, jobID string, size int, gate string) (string, string, string, error) {
+	if p == nil || p.pool == nil {
+		return "", "", "", ErrUnavailable
+	}
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+	var state string
+	var id, object pgtype.Text
+	err := p.pool.QueryRow(ctx, `SELECT result,job_id::text,object_key FROM arvc_internal.audio_analysis_storage_intent($1::uuid,$2,$3,$4::uuid,$5,$6)`, userID, key, hash, jobID, size, gate).Scan(&state, &id, &object)
+	if err != nil {
+		return "", "", "", ErrUnavailable
+	}
+	if state == "upload" {
+		return state, id.String, object.String, nil
+	}
+	if state == "existing" {
+		return state, id.String, object.String, nil
+	}
+	if state == "existing_legacy" {
+		return state, id.String, "", nil
+	}
+	return "", "", "", errors.New(state)
+}
+
+func (p *Postgres) SubmitStored(ctx context.Context, userID, key string, hash []byte, jobID, gate string) (string, bool, error) {
+	if p == nil || p.pool == nil {
+		return "", false, ErrUnavailable
+	}
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+	var state string
+	var id pgtype.Text
+	if err := p.pool.QueryRow(ctx, `SELECT result,job_id::text FROM arvc_internal.audio_analysis_job_submit_storage($1::uuid,$2,$3,$4::uuid,$5)`, userID, key, hash, jobID, gate).Scan(&state, &id); err != nil {
+		return "", false, ErrUnavailable
+	}
+	if (state == "queued" || state == "existing") && id.Valid {
+		return id.String, state == "existing", nil
+	}
+	return "", false, errors.New(state)
+}
+
+func (p *Postgres) ClaimedObject(ctx context.Context, jobID string, attempt int) (string, []byte, error) {
+	if p == nil || p.pool == nil {
+		return "", nil, ErrUnavailable
+	}
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+	var key pgtype.Text
+	var hash []byte
+	err := p.pool.QueryRow(ctx, `SELECT object_key,request_hash FROM arvc_internal.audio_analysis_job_storage_ref($1::uuid,$2)`, jobID, attempt).Scan(&key, &hash)
+	if err != nil {
+		return "", nil, ErrUnavailable
+	}
+	return key.String, hash, nil
+}
+
+func (p *Postgres) ClaimStorageCleanup(ctx context.Context, limit int) ([]string, error) {
+	if p == nil || p.pool == nil {
+		return nil, ErrUnavailable
+	}
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+	rows, err := p.pool.Query(ctx, `SELECT object_key FROM arvc_internal.audio_analysis_storage_cleanup_claim($1)`, limit)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	defer rows.Close()
+	keys := []string{}
+	for rows.Next() {
+		var k string
+		if rows.Scan(&k) != nil {
+			return nil, ErrUnavailable
+		}
+		keys = append(keys, k)
+	}
+	if rows.Err() != nil {
+		return nil, ErrUnavailable
+	}
+	return keys, nil
+}
+func (p *Postgres) FinishStorageCleanup(ctx context.Context, key string) error {
+	return p.cleanupBool(ctx, `SELECT arvc_internal.audio_analysis_storage_cleanup_done($1)`, key)
+}
+func (p *Postgres) RetryStorageCleanup(ctx context.Context, key, code string) error {
+	return p.cleanupBool(ctx, `SELECT arvc_internal.audio_analysis_storage_cleanup_failed($1,$2)`, key, code)
+}
+func (p *Postgres) cleanupBool(ctx context.Context, query string, args ...any) error {
+	if p == nil || p.pool == nil {
+		return ErrUnavailable
+	}
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+	var ok bool
+	if err := p.pool.QueryRow(ctx, query, args...).Scan(&ok); err != nil || !ok {
+		return ErrUnavailable
+	}
+	return nil
 }
 
 func (p *Postgres) Submit(ctx context.Context, userID, key string, hash, audio []byte, gate string) (string, bool, error) {
@@ -200,7 +328,7 @@ func (p *Postgres) GetStatus(ctx context.Context, jobID, userID string) (Job, er
 	ctx, cancel := bounded(ctx)
 	defer cancel()
 	var j Job
-	err := p.pool.QueryRow(ctx, `SELECT job_id::text,state,queue_position,safe_error_code,cancel_requested FROM arvc_internal.audio_analysis_job_status($1::uuid,$2::uuid)`, jobID, userID).Scan(&j.ID, &j.State, &j.QueuePosition, &j.SafeError, &j.CancelRequested)
+	err := p.pool.QueryRow(ctx, `SELECT job_id::text,state,queue_position,COALESCE(safe_error_code,''),cancel_requested FROM arvc_internal.audio_analysis_job_status($1::uuid,$2::uuid)`, jobID, userID).Scan(&j.ID, &j.State, &j.QueuePosition, &j.SafeError, &j.CancelRequested)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Job{}, ErrNotFound
 	}
@@ -254,6 +382,10 @@ func (p *Postgres) Claim(ctx context.Context) (Job, bool, error) {
 	if err != nil {
 		return Job{}, false, ErrUnavailable
 	}
+	j.AudioObjectKey, j.RequestHash, err = p.ClaimedObject(ctx, j.ID, j.Attempt)
+	if err != nil {
+		return Job{}, false, err
+	}
 	return j, true, nil
 }
 
@@ -278,7 +410,7 @@ func (p *Postgres) FinishAttempt(ctx context.Context, id string, attempt int, st
 	ctx, cancel := bounded(ctx)
 	defer cancel()
 	var ok bool
-	if err := p.pool.QueryRow(ctx, `SELECT arvc_internal.audio_analysis_job_finish_attempt($1::uuid,$2,$3,$4::jsonb,$5)`, id, attempt, state, nullIfEmpty(result), safeError).Scan(&ok); err != nil || !ok {
+	if err := p.pool.QueryRow(ctx, `SELECT arvc_internal.audio_analysis_job_finish_attempt($1::uuid,$2,$3,$4::jsonb,NULLIF($5,''))`, id, attempt, state, nullIfEmpty(result), safeError).Scan(&ok); err != nil || !ok {
 		return ErrUnavailable
 	}
 	return nil
@@ -351,7 +483,7 @@ func (p *Postgres) SettleForJob(ctx context.Context, jobID string, attempt int, 
 	ctx, cancel := bounded(ctx)
 	defer cancel()
 	var ok bool
-	if err := p.pool.QueryRow(ctx, `SELECT arvc_internal.audio_analysis_job_quota_settle($1::uuid,$2,$3::uuid,$4,$5)`, jobID, attempt, reservationID, state, safeCode).Scan(&ok); err != nil || !ok {
+	if err := p.pool.QueryRow(ctx, `SELECT arvc_internal.audio_analysis_job_quota_settle($1::uuid,$2,$3::uuid,$4,NULLIF($5,''))`, jobID, attempt, reservationID, state, safeCode).Scan(&ok); err != nil || !ok {
 		return ErrUnavailable
 	}
 	return nil

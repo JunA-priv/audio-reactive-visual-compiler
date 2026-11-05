@@ -243,6 +243,7 @@ func (h *Handler) analyzeWithAdmission(c *echo.Context, admission audiobudget.St
 	}
 	started := false
 	settled := false
+	settlementFailed := false
 	defer func() {
 		if started && !settled {
 			h.settleDetached(admission, reservation.ID, audiobudget.StateFailed, "handler_aborted")
@@ -310,6 +311,7 @@ func (h *Handler) analyzeWithAdmission(c *echo.Context, admission audiobudget.St
 	started = true
 	settle := func(state, safeCode string) error {
 		if err := h.settleDetached(admission, reservation.ID, state, safeCode); err != nil {
+			settlementFailed = true
 			return writeError(c, http.StatusServiceUnavailable, "analysis_control_unavailable", "audio analysis is temporarily unavailable")
 		}
 		settled = true
@@ -319,20 +321,20 @@ func (h *Handler) analyzeWithAdmission(c *echo.Context, admission audiobudget.St
 	if err := h.runner.Analyze(ctx, inputPath, outputDir, kickGateMode); err != nil {
 		elapsed := time.Since(analysisStarted).Milliseconds()
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			if settleErr := settle(audiobudget.StateFailed, "timeout"); settleErr != nil {
+			if settleErr := settle(audiobudget.StateFailed, "timeout"); settleErr != nil || settlementFailed {
 				return settleErr
 			}
 			h.logger.WarnContext(r.Context(), "audio analysis failed", "classification", "timeout", "elapsed_ms", elapsed)
 			return writeError(c, http.StatusGatewayTimeout, "analysis_timeout", "audio analysis timed out")
 		}
 		if errors.Is(ctx.Err(), context.Canceled) {
-			if settleErr := settle(audiobudget.StateCanceled, "canceled"); settleErr != nil {
+			if settleErr := settle(audiobudget.StateCanceled, "canceled"); settleErr != nil || settlementFailed {
 				return settleErr
 			}
 			h.logger.InfoContext(r.Context(), "audio analysis canceled", "elapsed_ms", elapsed)
 			return writeError(c, 499, "analysis_canceled", "audio analysis was canceled")
 		}
-		if settleErr := settle(audiobudget.StateFailed, "analysis_failed"); settleErr != nil {
+		if settleErr := settle(audiobudget.StateFailed, "analysis_failed"); settleErr != nil || settlementFailed {
 			return settleErr
 		}
 		attrs := []any{"classification", "python_process_error", "stage", "python", "elapsed_ms", elapsed, "audio_bytes", inputBytes}
@@ -342,13 +344,13 @@ func (h *Handler) analyzeWithAdmission(c *echo.Context, admission audiobudget.St
 	}
 	result, err := readAndValidateResult(outputDir, info.DurationSeconds, inputBytes)
 	if err != nil {
-		if settleErr := settle(audiobudget.StateFailed, "invalid_output"); settleErr != nil {
+		if settleErr := settle(audiobudget.StateFailed, "invalid_output"); settleErr != nil || settlementFailed {
 			return settleErr
 		}
 		h.logger.WarnContext(r.Context(), "audio analysis output rejected", "classification", "invalid_analysis_output", "elapsed_ms", time.Since(analysisStarted).Milliseconds())
 		return writeError(c, http.StatusBadGateway, "invalid_analysis_output", "audio analysis returned invalid data")
 	}
-	if settleErr := settle(audiobudget.StateSucceeded, ""); settleErr != nil {
+	if settleErr := settle(audiobudget.StateSucceeded, ""); settleErr != nil || settlementFailed {
 		return settleErr
 	}
 	h.logger.InfoContext(r.Context(), "audio analysis completed", "elapsed_ms", time.Since(analysisStarted).Milliseconds(), "duration_ms", int64(result.durationMs), "timeline_points", result.timelinePoints, "kick_events", result.kickEvents)

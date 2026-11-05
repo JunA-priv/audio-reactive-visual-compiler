@@ -82,6 +82,7 @@ func main() {
 	var aiBudget *aibudget.Postgres
 	var audioBudget *audiobudget.Postgres
 	var audioJobs *audiojobs.Postgres
+	var audioStorage audiojobs.ObjectStorage
 	projectsEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("PROJECTS_ENABLED")), "true")
 	audioAnalysisEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("AUDIO_ANALYSIS_ENABLED")), "true")
 	audioAnalysisJobsEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("AUDIO_ANALYSIS_JOBS_ENABLED")), "true")
@@ -233,6 +234,21 @@ func main() {
 				os.Exit(1)
 			}
 			if audioAnalysisJobsEnabled {
+				storageKey := strings.TrimSpace(os.Getenv("SUPABASE_AUDIO_STORAGE_KEY"))
+				if storageKey != "" {
+					audioStorage, err = audiojobs.NewSupabaseStorage(supabaseURL, storageKey)
+					if err != nil {
+						authValidator.Close()
+						audioBudget.Close()
+						slog.Error("audio Storage configuration is invalid")
+						os.Exit(1)
+					}
+				} else {
+					authValidator.Close()
+					audioBudget.Close()
+					slog.Error("SUPABASE_AUDIO_STORAGE_KEY is required for async audio jobs")
+					os.Exit(1)
+				}
 				audioJobs, err = audiojobs.NewPostgres(context.Background(), dsn)
 				if err != nil {
 					authValidator.Close()
@@ -248,6 +264,7 @@ func main() {
 					slog.Error("audio analysis job configuration is unavailable")
 					os.Exit(1)
 				}
+				audioJobsHandler.SetStorage(audioStorage)
 				if transport == "cloud_tasks" {
 					workerURL := strings.TrimRight(strings.TrimSpace(os.Getenv("AUDIO_WORKER_URL")), "/")
 					invoker := strings.TrimSpace(os.Getenv("CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT"))

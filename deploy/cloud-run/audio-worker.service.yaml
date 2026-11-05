@@ -61,3 +61,8 @@ spec:
                 secretKeyRef:
                   name: hosted-audio-worker-dsn
                   key: latest
+            - name: SUPABASE_AUDIO_STORAGE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hosted-audio-storage-key
+                  key: latest

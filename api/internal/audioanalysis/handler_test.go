@@ -393,9 +393,10 @@ func TestStartFailureAndSettlementFailureFailClosed(t *testing.T) {
 	}
 
 	settleFailure := &fakeAdmission{settleErr: audiobudget.ErrUnavailable}
-	e, _ = testHandlerWithAdmission(t, &fakeRunner{}, validInfo(), time.Second, settleFailure)
+	failedSettlementRunner := &fakeRunner{}
+	e, _ = testHandlerWithAdmission(t, failedSettlementRunner, validInfo(), time.Second, settleFailure)
 	w = doRequest(e, contentType, body, "Bearer valid")
-	if w.Code != http.StatusServiceUnavailable || len(settleFailure.starts) != 1 || len(settleFailure.settlements) < 1 {
+	if w.Code != http.StatusServiceUnavailable || len(settleFailure.starts) != 1 || len(settleFailure.settlements) < 1 || !strings.Contains(w.Body.String(), `"analysis_control_unavailable"`) || strings.Contains(w.Body.String(), `"featureTimeline"`) {
 		t.Fatalf("settlement failure did not fail closed: status=%d", w.Code)
 	}
 }

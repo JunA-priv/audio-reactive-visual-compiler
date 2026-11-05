@@ -1,4 +1,18 @@
-# CURRENT_TASK — Step 7k-50e：Cloud Tasks配送・Cloud Run Worker
+# CURRENT_TASK — Step 7k-52：Supabase Storage移行・非同期解析統合
+
+**Status: completed（Hosted適用なし）—** 新規音声をprivate Supabase Storageへ保存し、既存`audio_wav bytea`ジョブとのdual-readを維持。job/user単位の参照、upload intent・outbox・Worker claim/fencing・quota settlement・terminal cleanupを統合。Storage uploadはno-overwrite、owner read policy、service-only mutation、制限付きobject key/sizeを適用。DB/Storage部分失敗はintent/cleanup outboxと再試行で回復可能。旧byteaは削除・backfillせず保持。隔離Supabase Storage/DB live round trip（owner/他ユーザー/anonymous、dispatch、duplicate delivery、結果GET、quota一回、Storage delete）PASS。Go race/vet/build、Step 7k-52 SQL verification、Docker image build/healthcheck、workflow/YAML/shell/diff checks PASS。WSL再起動後も開発/隔離Supabase DB volumeを保持し、API/Vite healthyを確認。Hosted/GCP/共有DB変更・push/deployなし。
+
+**未実施・公開制約：** 実SCNet推論負荷、実ブラウザE2E、Hosted障害/容量/費用試験は未実施。Step 7k-51の実Hosted/GCP設定は未適用で公開NO-GO。既存開発・隔離Supabaseは稼働・保持。一時DB roleは`NOLOGIN`、テスト行とStorage objectは0件。専用検証image/cache volume・一時credential/build成果物は削除済み。空のroot所有`/tmp/arvc-step7k52-isolated`のみOS権限で削除できず、実行中Supabase containerからは未mount。
+
+---
+
+# HISTORICAL — Step 7k-51：クラウド公開準備
+
+**Status: partial —** `deploy/cloud-run/audio-api.service.yaml`、Scheduler recovery job、production Environment承認を必須とするdigest固定Hosted release workflow、停止/復旧とIAM/Secret設定を追加。Cloud Tasksは既定disabled。Storage分離・既存bytea jobの安全な移行は未実装であり、Free容量適合/費用/実クラウド接続・Docker/SCNet統合は未確認。Hosted/GCP/共有DB変更なし。公開NO-GO。詳細は[Step 7k-51 readiness](docs/reports/2026-11-05-step7k-51-cloud-release-readiness.md)。
+
+---
+
+# HISTORICAL — Step 7k-50e：Cloud Tasks配送・Cloud Run Worker
 
 **Status: partial / production disabled.** Job-ID-only Cloud Tasks adapter、transactional dispatch outbox migration案、重複配送/attempt fencingと接続する専用OIDC HTTP Worker、reconcile wake endpoint、Cloud Run Worker templateを実装。Cloud Tasksは明示flagなしでは起動できず、template/env例もdisabled。対象Go packages test/race/vet、build、diff check PASS。補完検証で隔離PostgreSQL 17.11に042/050b/050d/050eを適用しPASS。50e専用dispatch SQL、既存queue/quota回帰、sentinel保持をrollback検証。初回検証で見つけたPL/pgSQL曖昧参照3箇所を修正後、fresh DBで再PASS。Hosted/GCP/共有DB/deployなし。Scheduler/Cloud IAM/real SCNet 2並列/費用は未検証。Hosted Supabase Freeの現行DB予算内に既存bytea queue/resultsが収まるか未証明。詳細：[Step 7k-50e報告](docs/reports/2026-11-05-step7k-50e-cloudtasks-worker.md)。
 
