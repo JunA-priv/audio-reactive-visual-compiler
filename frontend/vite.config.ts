@@ -42,8 +42,22 @@ function localApiProxyOriginPlugin(): Plugin {
   };
 }
 
+function cloudflarePagesHeadersPlugin(): Plugin {
+  return {
+    name: 'arvc-cloudflare-pages-headers',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: '_headers',
+        source: '/*\n  Referrer-Policy: no-referrer\n',
+      });
+    },
+  };
+}
+
 export default defineConfig(({ command }) => ({
-  plugins: [react(), localApiProxyOriginPlugin()],
+  plugins: [react(), localApiProxyOriginPlugin(), cloudflarePagesHeadersPlugin()],
   // User-provided demo tracks remain available to local dev, but production builds
   // must opt in after the source/model-derived asset publication review is complete.
   publicDir: command === 'serve' || process.env.ARVC_DEMO_ASSETS_PUBLICATION_APPROVED === 'true' ? 'public' : false,
