@@ -630,13 +630,42 @@ describe('VisualEditor interactions', () => {
     expect([...host.querySelectorAll('button')].some((button) => button.textContent?.includes('動画を書き出す'))).toBe(false);
     expect(fetchMock).toHaveBeenCalledWith('/demo/demo1.feature-timeline-v2.json');
 
-    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); audio.dispatchEvent(new Event('loadedmetadata')); });
+    let currentTime = 0;
+    let metadataLoaded = false;
+    Object.defineProperty(audio, 'currentTime', { configurable: true, get: () => metadataLoaded ? currentTime : 0, set: (value: number) => { if (metadataLoaded) currentTime = value; } });
+    const seek = host.querySelector<HTMLInputElement>('[aria-label="再生位置の調整"]')!;
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); });
+    expect(seek.disabled).toBe(false);
+    act(() => change(seek, '400'));
+    expect(audio.currentTime).toBe(0);
+    expect(host.querySelector('output')?.textContent).toContain('0.40 s');
+
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); metadataLoaded = true; audio.dispatchEvent(new Event('loadedmetadata')); });
     expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(audio.currentTime).toBe(0.4);
 
     const play = [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === '再生')!;
     await act(async () => { play.dispatchEvent(new MouseEvent('click', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
-    await act(async () => { audio.currentTime = 0.75; await new Promise((resolve) => window.setTimeout(resolve, 60)); });
+    expect(audio.currentTime).toBe(0.4);
+    expect([...host.querySelectorAll('button')].some((button) => button.textContent?.trim() === '一時停止')).toBe(true);
+    act(() => change(seek, '600'));
+    expect(audio.currentTime).toBe(0.6);
+    expect([...host.querySelectorAll('button')].some((button) => button.textContent?.trim() === '一時停止')).toBe(true);
+    await act(async () => { [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === '一時停止')!.click(); await Promise.resolve(); });
+    expect(audio.currentTime).toBe(0.6);
+    await act(async () => { [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === '再生')!.click(); await Promise.resolve(); });
+    expect(audio.currentTime).toBe(0.6);
+    await act(async () => { audio.currentTime = 0.75; audio.dispatchEvent(new Event('timeupdate')); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
     expect(host.querySelector('output')?.textContent).toContain('0.75 s');
+
+    await act(async () => { [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === '停止')!.click(); await Promise.resolve(); });
+    expect(audio.currentTime).toBe(0);
+    expect(host.querySelector('output')?.textContent).toContain('0.00 s');
+    act(() => change(seek, '1000'));
+    expect(audio.currentTime).toBe(1);
+    await act(async () => { [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === '再生')!.click(); await Promise.resolve(); });
+    expect(audio.currentTime).toBe(0);
+
     const selector = host.querySelector<HTMLSelectElement>('select[aria-label="デモ楽曲"]')!;
     change(selector, 'demo2');
     await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); audio.dispatchEvent(new Event('loadedmetadata')); });
