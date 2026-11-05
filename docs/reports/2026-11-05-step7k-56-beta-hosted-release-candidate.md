@@ -1,6 +1,6 @@
 # Step 7k-56 — Hosted移行前統合・招待制β版アカウント制御
 
-**Status: partial（ローカル実装・隔離検証PASS、GitHub PR/CI待ち）**
+**Status: partial（ローカル実装・隔離検証PASS、PR #5のBackend migration CIで検出した適用順序不整合を修正し、再実行待ち）**
 
 ## 実装
 
@@ -36,6 +36,10 @@ Step 7k-55の8時間ごとのread-only `SELECT 1`、dispatch recoveryと別ident
 - 24件migration manifest/hash、Hosted migration target guards、shell構文、全GitHub Actions YAML parse、changed-file secret pattern scan、`git diff --check` PASS。
 - Frontendコードは未変更。GitHub Frontend CIはPRで実行する。
 - Supabase CLIがWSLに未導入のため、ローカル`supabase migration up`/`db lint`は未実施。PR CIのsupabase CLI 2.121.0 fresh stackで補完する。
+
+## CI適用順序修正
+
+初回PR CIで、`supabase db start`がmigration 050001–050004を一時退避している間に新しい005 migrationまで先行適用し、参照先の`audio_analysis_jobs`がない状態で失敗することを確認。CI手順を更新し、beta entitlement migrationも一時退避してpreservation sentinelを作成した後、先行4 migrationとともに復元してから`supabase migration up --local`で正しい順序に適用する。失敗時のtrapでも全5ファイルを復元する。YAML parse、migration job shell `bash -n`、`git diff --check`は更新後PASS。修正後のGitHub CIは再実行待ち。
 
 ## 保全・適用制約
 
