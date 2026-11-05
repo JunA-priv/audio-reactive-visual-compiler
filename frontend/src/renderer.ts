@@ -1100,8 +1100,36 @@ function renderBackground(context: CanvasRenderingContext2D, blueprint: EditorBl
     context.fillStyle = '#10131c';
     context.fillRect(0, 0, blueprint.width, blueprint.height);
     const image = assets[background.src];
-    if (image) context.drawImage(image, 0, 0, blueprint.width, blueprint.height);
+    if (image) drawFittedImage(context, image, blueprint.width, blueprint.height, background.fit ?? 'contain');
   }
+  for (const layer of blueprint.imageLayers ?? []) {
+    const image = assets[layer.src];
+    if (!image) continue;
+    const sourceX = layer.crop?.x ?? 0;
+    const sourceY = layer.crop?.y ?? 0;
+    const sourceWidth = layer.crop?.width ?? layer.sourceWidth;
+    const sourceHeight = layer.crop?.height ?? layer.sourceHeight;
+    if (layer.fit === 'stretch') context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, layer.x, layer.y, layer.width, layer.height);
+    else {
+      const ratio = layer.fit === 'contain' ? Math.min(layer.width / sourceWidth, layer.height / sourceHeight) : Math.max(layer.width / sourceWidth, layer.height / sourceHeight);
+      const targetWidth = sourceWidth * ratio;
+      const targetHeight = sourceHeight * ratio;
+      context.save();
+      context.beginPath(); context.rect(layer.x, layer.y, layer.width, layer.height); context.clip();
+      context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, layer.x + (layer.width - targetWidth) / 2, layer.y + (layer.height - targetHeight) / 2, targetWidth, targetHeight);
+      context.restore();
+    }
+  }
+}
+
+function drawFittedImage(context: CanvasRenderingContext2D, image: CanvasImageSource, width: number, height: number, fit: 'contain' | 'cover' | 'stretch') {
+  const sourceWidth = (image as { naturalWidth?: number; width?: number }).naturalWidth || (image as { width?: number }).width || width;
+  const sourceHeight = (image as { naturalHeight?: number; height?: number }).naturalHeight || (image as { height?: number }).height || height;
+  if (fit === 'stretch') { context.drawImage(image, 0, 0, width, height); return; }
+  const ratio = fit === 'contain' ? Math.min(width / sourceWidth, height / sourceHeight) : Math.max(width / sourceWidth, height / sourceHeight);
+  const targetWidth = sourceWidth * ratio; const targetHeight = sourceHeight * ratio;
+  context.save(); context.beginPath(); context.rect(0, 0, width, height); context.clip();
+  context.drawImage(image, (width - targetWidth) / 2, (height - targetHeight) / 2, targetWidth, targetHeight); context.restore();
 }
 
 export function renderEditorFrame(

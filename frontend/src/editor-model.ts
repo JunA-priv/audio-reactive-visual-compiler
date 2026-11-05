@@ -51,7 +51,9 @@ export type Effect = (
 export type Background =
   | { kind: 'solid'; color: string }
   | { kind: 'gradient'; from: string; to: string; angleDeg: number }
-  | { kind: 'image'; src: string };
+  | { kind: 'image'; src: string; fit?: 'contain' | 'cover' | 'stretch' };
+
+export type ImageLayer = { id: string; src: string; x: number; y: number; width: number; height: number; sourceWidth: number; sourceHeight: number; fit: 'contain' | 'cover' | 'stretch'; crop?: { x: number; y: number; width: number; height: number } };
 
 export type EditorBlueprint = {
   version: 1;
@@ -59,6 +61,7 @@ export type EditorBlueprint = {
   height: number;
   seed: number;
   background: Background;
+  imageLayers?: ImageLayer[];
   globalGradient?: GlobalGradient;
   regions: Region[];
   effects: Effect[];
@@ -149,6 +152,14 @@ export function validateBlueprint(blueprint: EditorBlueprint): void {
   if (blueprint.background.kind === 'solid' && !validColor(blueprint.background.color)) fail('invalid background color');
   if (blueprint.background.kind === 'gradient' && (!validColor(blueprint.background.from) || !validColor(blueprint.background.to) || !Number.isFinite(blueprint.background.angleDeg) || blueprint.background.angleDeg < 0 || blueprint.background.angleDeg > 360)) fail('invalid gradient');
   if (blueprint.background.kind === 'image' && (!/^data:image\/(png|jpeg);base64,/i.test(blueprint.background.src) || blueprint.background.src.length > 14_000_000)) fail('invalid image data');
+  if (blueprint.imageLayers !== undefined) {
+    if (!Array.isArray(blueprint.imageLayers) || blueprint.imageLayers.length > 12) fail('invalid image layers');
+    for (const layer of blueprint.imageLayers) {
+      if (!layer || !layer.id || !/^data:image\/(png|jpeg);base64,/i.test(layer.src) || layer.src.length > 14_000_000 || ![layer.x, layer.y, layer.width, layer.height, layer.sourceWidth, layer.sourceHeight].every(Number.isFinite) || layer.width <= 0 || layer.height <= 0 || layer.sourceWidth <= 0 || layer.sourceHeight <= 0 || !['contain', 'cover', 'stretch'].includes(layer.fit)) fail('invalid image layer');
+      const crop = layer.crop;
+      if (crop && (![crop.x, crop.y, crop.width, crop.height].every(Number.isFinite) || crop.x < 0 || crop.y < 0 || crop.width <= 0 || crop.height <= 0 || crop.x + crop.width > layer.sourceWidth || crop.y + crop.height > layer.sourceHeight)) fail('invalid image crop');
+    }
+  }
   if (blueprint.globalGradient !== undefined) {
     const gradient = blueprint.globalGradient as unknown as Record<string, unknown>;
     if (!gradient || typeof gradient !== 'object' || Object.keys(gradient).some((key) => !['startColor', 'middleColor', 'endColor', 'angleDeg'].includes(key)) || !['startColor', 'middleColor', 'endColor', 'angleDeg'].every((key) => key in gradient) || ![gradient.startColor, gradient.middleColor, gradient.endColor].every((color) => typeof color === 'string' && validColor(color)) || typeof gradient.angleDeg !== 'number' || !Number.isFinite(gradient.angleDeg) || gradient.angleDeg < 0 || gradient.angleDeg > 360) fail('invalid global gradient');
