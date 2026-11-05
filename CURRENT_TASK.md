@@ -1,6 +1,6 @@
 # CURRENT_TASK — Step 7k-56：Hosted移行前統合・招待制β版アカウント制御
 
-**Status: implementation in progress —** Step 7k-55の成果は開始時点でcleanなmain commit `2ddd35f`に統合済み。feature branchでAudio entitlementの`standard`/`beta` tierと`local`/`hosted` scopeを追加し、betaのみユーザー日次/月次countを迂回しつつservice caps、burst、concurrency、60秒/16MiB、queue/storage上限、権限境界、kill switchを維持するforward migration・Go startup environment check・隔離SQL検証を実装。Auth招待・β終了・正式版upgrade/JWT期限の手順を記録中。Hosted/GCP/Production操作なし。migration/Go/CI/PR検証は未完了。詳細：[Step 7k-56 report](docs/reports/2026-11-05-step7k-56-beta-hosted-release-candidate.md)。
+**Status: completed (PR/CI success; main merge approval pending) —** Step 7k-55の成果を維持し、Audio entitlementの`standard`/`beta` tierと`local`/`hosted` scopeを追加。βtierはユーザー日次/月次countのみ迂回し、service caps、burst、concurrency、60秒/16MiB、queue/storage上限、権限境界、fencing、settlement、kill switchを維持。forward migration・Go startup environment check・isolated SQL testsとAuth招待/β終了/formal upgrade手順を追加。隔離DB・Go race/vet/build・全24 migration fresh apply/SQL regressions/db lint・Frontend CI・migration/workflow/secrets guardsがPASS。PR #5 (`feature/step7k56-beta-entitlements`, head `cd6394b46916cb3db855ce89a0eeb1ab42893eff`) open、required CI green。Hosted/GCP/Productionは未変更、main merge未実施。詳細：[Step 7k-56 report](docs/reports/2026-11-05-step7k-56-beta-hosted-release-candidate.md)。
 
 ---
 

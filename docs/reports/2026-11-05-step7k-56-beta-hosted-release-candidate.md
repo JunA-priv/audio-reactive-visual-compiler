@@ -1,6 +1,6 @@
 # Step 7k-56 — Hosted移行前統合・招待制β版アカウント制御
 
-**Status: partial（ローカル実装・隔離検証PASS、PR #5のBackend migration CIで検出した適用順序不整合を修正し、再実行待ち）**
+**Status: completed（実装・隔離検証・GitHub必須CI成功。PR #5でmain merge承認待ち）**
 
 ## 実装
 
@@ -34,12 +34,12 @@ Step 7k-55の8時間ごとのread-only `SELECT 1`、dispatch recoveryと別ident
 - 既存`step7k50b`/`50d`/`50e`/`52` rollback SQL、3種のRLS/privilege invariant PASS。
 - Go全package `go test -race -p 1 ./...` PASS（default sandboxのIPv6 loopback拒否後、承認済み権限昇格で完了）。`go vet -p 1 ./...`、`go build -p 1 ./...`、β変更package race再実行PASS。
 - 24件migration manifest/hash、Hosted migration target guards、shell構文、全GitHub Actions YAML parse、changed-file secret pattern scan、`git diff --check` PASS。
-- Frontendコードは未変更。GitHub Frontend CIはPRで実行する。
-- Supabase CLIがWSLに未導入のため、ローカル`supabase migration up`/`db lint`は未実施。PR CIのsupabase CLI 2.121.0 fresh stackで補完する。
+- Frontendコードは未変更。GitHub Frontend CIのtypecheck/lint/tests/build PASS。
+- Supabase CLIがWSLに未導入のため、ローカル`supabase migration up`/`db lint`は未実施。PR CIのSupabase CLI 2.121.0 fresh stackで24 migrations fresh apply、sentinel保持、Step 7k-50b/50d/50e/52/56 SQL検証、RLS/ACL invariants、`db lint --fail-on error` PASS。
 
 ## CI適用順序修正
 
-初回PR CIで、`supabase db start`がmigration 050001–050004を一時退避している間に新しい005 migrationまで先行適用し、参照先の`audio_analysis_jobs`がない状態で失敗することを確認。CI手順を更新し、beta entitlement migrationも一時退避してpreservation sentinelを作成した後、先行4 migrationとともに復元してから`supabase migration up --local`で正しい順序に適用する。失敗時のtrapでも全5ファイルを復元する。YAML parse、migration job shell `bash -n`、`git diff --check`は更新後PASS。修正後のGitHub CIは再実行待ち。
+初回PR CIでは`supabase db start`が起動時にmigration 56を先行適用し、前提のaudio job tableがない状態で失敗した。CIはmigration 56も一時退避し、preservation sentinel投入後に先行4件とともに復元してから`supabase migration up --local`を実行するよう修正。失敗時trapも全5 migrationを復元する。修正後PR head `cd6394b46916cb3db855ce89a0eeb1ab42893eff`でBackend/Database CI（Go race/vet、24件fresh apply、回帰SQL、privilege invariants、db lint）とFrontend CIが全て成功。
 
 ## 保全・適用制約
 
@@ -50,6 +50,7 @@ Hosted Supabase・GCP・Production workflow・GitHub mainは未変更。merge/de
 ## 残存事項
 
 - PRのBackend/Database CI（全24 migration fresh apply、`db lint`）とFrontend CIは未実行。
+- PR #5はfeature branch `feature/step7k56-beta-entitlements`、commit `cd6394b46916cb3db855ce89a0eeb1ab42893eff`でopen。Backend/Database CI run 14とFrontend CI run 19は成功。mainへのmergeは未実施で、最終承認待ち。
 - Hosted sign-up/invite settings、Free project/DB role/Storage、real JWT/SCNetは未接続・未試験。管理者が設定後、Hosted適用承認とsmoke testが必要。
 - Auth banのみでは既発行JWTは即失効しない。Audio entitlementで解析は止まるが、他endpointを有効にする場合はsession revoke gateを別途必要とする。
 - 017/018 Hosted初回baseline判断はStep7k-55方針を維持し、Hosted実CLI/実projectでのdry-runはHosted接続許可後に確認する。
