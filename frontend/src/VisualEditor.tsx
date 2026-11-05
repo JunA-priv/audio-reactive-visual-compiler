@@ -1309,7 +1309,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   return (
     <main className="editor-shell">
       <header className="editor-header">
-        <div><h1>{isDemo ? 'サンプルデモ' : 'ビジュアルエディター'}</h1><p>{isDemo ? 'サンプル楽曲に合わせて映像を再生します。変更はこの画面だけに保存されます。' : '音に反応するエフェクトを編集し、プレビューで確認できます。'}</p></div>
+        <div>{isDemo && <a className="registration-link" href="/">← トップページに戻る</a>}<h1>{isDemo ? 'サンプルデモ' : 'ビジュアルエディター'}</h1><p>{isDemo ? 'サンプル楽曲に合わせて映像を再生します。変更はこの画面だけに保存されます。' : '音に反応するエフェクトを編集し、プレビューで確認できます。'}</p></div>
         <div className="badge">プレビュー</div>
       </header>
 

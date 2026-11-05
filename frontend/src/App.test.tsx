@@ -35,6 +35,8 @@ describe('application routes', () => {
     const guest = [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'ゲストで試す')!;
     act(() => guest.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     expect(host.querySelector('h1')?.textContent).toBe('サンプルデモ');
+    const homeLink = host.querySelector<HTMLAnchorElement>('.editor-header a[href="/"]');
+    expect(homeLink?.textContent).toBe('← トップページに戻る');
     act(() => root.unmount());
   });
 
