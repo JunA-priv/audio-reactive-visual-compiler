@@ -128,7 +128,7 @@ BEGIN
   IF FOUND THEN
     IF v_existing.request_hash<>p_hash THEN RETURN QUERY SELECT 'idempotency_conflict'::text,NULL::uuid;
     ELSE
-      IF v_existing.state='queued' THEN INSERT INTO public.audio_analysis_job_dispatch(job_id) VALUES(v_existing.job_id) ON CONFLICT(job_id) DO NOTHING; END IF;
+      IF v_existing.state='queued' THEN INSERT INTO public.audio_analysis_job_dispatch(job_id) VALUES(v_existing.job_id) ON CONFLICT ON CONSTRAINT audio_analysis_job_dispatch_pkey DO NOTHING; END IF;
       RETURN QUERY SELECT 'existing'::text,v_existing.job_id;
     END IF;
     RETURN;
