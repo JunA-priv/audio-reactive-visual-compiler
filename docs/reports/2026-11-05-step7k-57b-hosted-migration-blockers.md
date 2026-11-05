@@ -1,6 +1,6 @@
 # Step 7k-57b — Hosted Supabase移行前ブロッカー解消
 
-**Status: partial — local preparation, migration and CLI checks pass; PR and CI are pending. Hosted Supabase and GCP were not changed.**
+**Status: completed — Hosted migration preparation and PR CI passed. Hosted Supabase and GCP were not changed; the feature PR is not merged.**
 
 ## 1. GitHub and local Git
 
@@ -84,7 +84,7 @@ Any target mismatch, nonempty project, unknown role/extension privilege, unexpec
 - Hosted ref/region/plan/version/empty state, actual Pooler and migration permissions, Auth ES256/JWKS/invite settings, private buckets, runtime dedicated roles/credentials, Storage PUT/GET/DELETE, and Hosted recovery have not been tested.
 - The Supabase CLI binary is a local ignored convenience and is not part of the feature branch. The official checksum was validated; repo CI continues to install its pinned v2.121.0.
 - Explicit approval is still required for Hosted project creation/configuration, backup from Hosted, Hosted DB role/credential setup, migration apply, Auth/Storage changes, user creation, GCP, Production workflow, deployment and public traffic.
-- PR/CI for Step 7k-57b are pending; final completion status depends on those checks.
+- PR #6: https://github.com/JunA-priv/audio-reactive-visual-compiler/pull/6, head `c10b0509ad7eca0cdb05aa705c85d283d37d0f36`. Required `go`, `migrations`, and Frontend `quality` checks passed. PR remains open and unmerged; no main push or merge was performed.
 
 ## 8. Changed files
 
