@@ -232,6 +232,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   const [imageAspectLocked, setImageAspectLocked] = useState(false);
   const imageDrag = useRef<{ pointerId: number; startX: number; startY: number; x: number; y: number; width: number; height: number; resize: boolean } | null>(null);
   const [imageResizeMode, setImageResizeMode] = useState(false);
+  const [imageUploadMode, setImageUploadMode] = useState<'add' | 'replace'>('add');
   const [imageError, setImageError] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [playbackAudioUrl, setPlaybackAudioUrl] = useState('');
@@ -1037,8 +1038,15 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       if (loaded.naturalWidth > 20000 || loaded.naturalHeight > 20000 || loaded.naturalWidth * loaded.naturalHeight > 100_000_000) throw new Error('画像の寸法が大きすぎます。');
       return { id: `image-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`, src, x: 0, y: 0, width: blueprint.width, height: blueprint.height, sourceWidth: loaded.naturalWidth, sourceHeight: loaded.naturalHeight, fit: 'contain' as const } satisfies ImageLayer;
     })).then((layers) => {
-      updateBlueprint((draft) => { draft.imageLayers = [...(draft.imageLayers ?? []), ...layers]; });
-      setSelectedImageLayerId(layers.at(-1)?.id ?? null);
+      updateBlueprint((draft) => {
+        if (imageUploadMode === 'replace' && selectedImageLayerId && draft.imageLayers?.some((layer) => layer.id === selectedImageLayerId)) {
+          const old = draft.imageLayers.find((layer) => layer.id === selectedImageLayerId)!;
+          draft.imageLayers[draft.imageLayers.indexOf(old)] = { ...layers[0]!, id: old.id, x: old.x, y: old.y, width: old.width, height: old.height, fit: old.fit };
+        } else {
+          draft.imageLayers = [...(draft.imageLayers ?? []), ...layers];
+        }
+      });
+      if (!(imageUploadMode === 'replace' && selectedImageLayerId)) setSelectedImageLayerId(layers.at(-1)?.id ?? null);
     }).catch((error: unknown) => setImageError(error instanceof Error ? error.message : '画像ファイルを読み込めませんでした。'));
   }
 
@@ -1436,6 +1444,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             {background.kind === 'gradient' && <div className="color-pair"><label className="field">開始色<input aria-label="グラデーションの開始色" type="color" value={background.from} onChange={(event) => updateBackground({ ...background, from: event.target.value })} /></label><label className="field">終了色<input aria-label="グラデーションの終了色" type="color" value={background.to} onChange={(event) => updateBackground({ ...background, to: event.target.value })} /></label><label className="field">角度<input aria-label="グラデーションの角度" type="number" min={0} max={360} value={background.angleDeg} onChange={(event) => updateBackground({ ...background, angleDeg: Math.min(360, Math.max(0, Number(event.target.value))) })} /></label></div>}
             {background.kind === 'image' && <label className="field">背景画像の表示方法<select aria-label="背景画像の表示方法" value={background.fit ?? 'contain'} onChange={(event) => updateBackground({ ...background, fit: event.target.value as ImageLayer['fit'] })}><option value="contain">全体を表示</option><option value="cover">キャンバスを覆う</option><option value="stretch">縦横に伸縮</option></select></label>}
             <label className="file-button">画像を追加（PNG / JPEG）<input aria-label="背景画像を選択" type="file" accept="image/png,image/jpeg" multiple onChange={onImageSelected} /></label>
+            <div className="segmented" aria-label="画像読み込み方法"><button className={imageUploadMode === 'add' ? 'active' : ''} onClick={() => setImageUploadMode('add')}>新しい画像を追加</button><button className={imageUploadMode === 'replace' ? 'active' : ''} onClick={() => setImageUploadMode('replace')} disabled={!selectedImageLayer}>選択画像を置き換え</button></div>
             {blueprint.imageLayers && blueprint.imageLayers.length > 0 && <div className="image-layer-controls" aria-label="画像レイヤー">
               {blueprint.imageLayers.map((layer, index) => <div className={layer.id === selectedImageLayerId ? 'image-layer selected' : 'image-layer'} key={layer.id}><button aria-pressed={layer.id === selectedImageLayerId} onClick={() => setSelectedImageLayerId(layer.id)}>画像 {index + 1}</button><button aria-label={`画像 ${index + 1} を前面へ`} onClick={() => updateBlueprint((draft) => { const items = draft.imageLayers ?? []; const at = items.findIndex((item) => item.id === layer.id); if (at >= 0 && at < items.length - 1) [items[at], items[at + 1]] = [items[at + 1]!, items[at]!]; })}>前へ</button><button aria-label={`画像 ${index + 1} を削除`} onClick={() => { updateBlueprint((draft) => { draft.imageLayers = (draft.imageLayers ?? []).filter((item) => item.id !== layer.id); }); if (selectedImageLayerId === layer.id) setSelectedImageLayerId(null); }}>削除</button></div>)}
             </div>}
