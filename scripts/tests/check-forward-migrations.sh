@@ -33,7 +33,10 @@ for path in files:
             # finalized usage older than 90 days. Keep all other quota/history
             # deletion blocked; do not broaden this exception to another file
             # or a changed predicate.
-            if pattern == delete_pattern and path.name == "20261104000100_step7k42_audio_analysis_quota.sql":
+            if pattern == delete_pattern and path.name in {
+                "20261104000100_step7k42_audio_analysis_quota.sql",
+                "20261105000500_step7k56_beta_audio_entitlements.sql",
+            }:
                 statement_start = text.rfind(";", 0, match.start()) + 1
                 statement_end = text.find(";", match.end())
                 statement = text[statement_start:statement_end + 1] if statement_end >= 0 else ""

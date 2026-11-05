@@ -61,16 +61,19 @@ jobs:
           migration_quota=supabase/migrations/20261105000200_step7k50d_audio_job_quota_idempotency.sql
           migration_dispatch=supabase/migrations/20261105000300_step7k50e_audio_job_dispatch_outbox.sql
           migration_storage=supabase/migrations/20261105000400_step7k52_audio_storage.sql
+          migration_beta=supabase/migrations/20261105000500_step7k56_beta_audio_entitlements.sql
           temp_dir="$(mktemp -d)"
           mv "$migration_queue" "$temp_dir/queue.sql"
           mv "$migration_quota" "$temp_dir/job-quota.sql"
           mv "$migration_dispatch" "$temp_dir/job-dispatch.sql"
           mv "$migration_storage" "$temp_dir/job-storage.sql"
+          mv "$migration_beta" "$temp_dir/beta-entitlements.sql"
           restore_migration() {
             if [[ -f "$temp_dir/queue.sql" ]]; then mv "$temp_dir/queue.sql" "$migration_queue"; fi
             if [[ -f "$temp_dir/job-quota.sql" ]]; then mv "$temp_dir/job-quota.sql" "$migration_quota"; fi
             if [[ -f "$temp_dir/job-dispatch.sql" ]]; then mv "$temp_dir/job-dispatch.sql" "$migration_dispatch"; fi
             if [[ -f "$temp_dir/job-storage.sql" ]]; then mv "$temp_dir/job-storage.sql" "$migration_storage"; fi
+            if [[ -f "$temp_dir/beta-entitlements.sql" ]]; then mv "$temp_dir/beta-entitlements.sql" "$migration_beta"; fi
             rm -rf "$temp_dir"
           }
           trap restore_migration EXIT
@@ -80,12 +83,14 @@ jobs:
           mv "$temp_dir/job-quota.sql" "$migration_quota"
           mv "$temp_dir/job-dispatch.sql" "$migration_dispatch"
           mv "$temp_dir/job-storage.sql" "$migration_storage"
+          mv "$temp_dir/beta-entitlements.sql" "$migration_beta"
           supabase migration up --local
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-preservation-after.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50b-audio-analysis-jobs.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50d-audio-job-idempotency.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k50e-audio-job-dispatch.sql
           docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k52-audio-storage.sql
+          docker exec -i supabase_db_audio-reactive-visual-compiler psql -v ON_ERROR_STOP=1 -U supabase_admin -d postgres < supabase/verification/step7k56-beta-entitlements.sql
           for invariant in \
             supabase/verification/step7b-privilege-invariants.sql \
             supabase/verification/step7g-ai-budget-privilege-invariants.sql \

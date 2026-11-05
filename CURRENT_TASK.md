@@ -1,4 +1,10 @@
-# CURRENT_TASK — Step 7k-55：Hosted Supabase互換性修正
+# CURRENT_TASK — Step 7k-56：Hosted移行前統合・招待制β版アカウント制御
+
+**Status: completed (PR/CI success; main merge approval pending) —** Step 7k-55の成果を維持し、Audio entitlementの`standard`/`beta` tierと`local`/`hosted` scopeを追加。βtierはユーザー日次/月次countのみ迂回し、service caps、burst、concurrency、60秒/16MiB、queue/storage上限、権限境界、fencing、settlement、kill switchを維持。forward migration・Go startup environment check・isolated SQL testsとAuth招待/β終了/formal upgrade手順を追加。隔離DB・Go race/vet/build・全24 migration fresh apply/SQL regressions/db lint・Frontend CI・migration/workflow/secrets guardsがPASS。PR #5 (`feature/step7k56-beta-entitlements`, head `cd6394b46916cb3db855ce89a0eeb1ab42893eff`) open、required CI green。Hosted/GCP/Productionは未変更、main merge未実施。詳細：[Step 7k-56 report](docs/reports/2026-11-05-step7k-56-beta-hosted-release-candidate.md)。
+
+---
+
+# HISTORICAL — Step 7k-55：Hosted Supabase互換性修正
 
 **Status: completed（ローカル実装・隔離検証まで。Hosted/GCP/GitHub未適用）—** Storage key kind別header、Free IPv4 Session Pooler専用role/project-ref/TLS検証、017/018初回baseline方針、migration manifest/dry-run fail-closed workflow、local fixture Hosted拒否、8時間read-only OIDC DB healthcheckと通知/費用運用を実装。Go対象package race/vet/build、静的migration/workflowガードPASS。隔離DB 23 migrations read-only確認。Hosted接続/GCP資源/production CIは未実施。公開はHosted/課金設定と実CLI/Hosted相当dry-run確認までNO-GO。詳細：[Step 7k-55 report](docs/reports/2026-11-05-step7k-55-hosted-supabase-compatibility.md)。
 
