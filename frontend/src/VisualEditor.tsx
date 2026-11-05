@@ -592,7 +592,10 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       const audio = demoAudioRef.current;
       if (!audio) return;
       if (!next) { audio.pause(); setPlaying(false); return; }
-      audio.currentTime = Math.min(timeMs, timeline.durationMs) / 1000;
+      if (audio.ended || timeMs >= timeline.durationMs) {
+        audio.currentTime = 0;
+        setTimeMs(0);
+      }
       void audio.play().then(() => setPlaying(true)).catch(() => {
         setPlaying(false); setApiStatus('デモ音源を再生できませんでした。ブラウザの音声設定を確認してください。');
       });
@@ -608,10 +611,15 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }
 
   function seekPreview(value: number) {
+    const nextTimeMs = Math.max(0, Math.min(value, timeline.durationMs));
+    if (isDemo) {
+      setTimeMs(nextTimeMs);
+      if (demoAudioRef.current) demoAudioRef.current.currentTime = nextTimeMs / 1000;
+      return;
+    }
     setPlaying(false);
-    if (isDemo && demoAudioRef.current) { demoAudioRef.current.pause(); demoAudioRef.current.currentTime = value / 1000; }
-    if (variant === 'app' && playbackAudioRef.current) { playbackAudioRef.current.pause(); playbackAudioRef.current.currentTime = value / 1000; }
-    setTimeMs(value);
+    if (variant === 'app' && playbackAudioRef.current) { playbackAudioRef.current.pause(); playbackAudioRef.current.currentTime = nextTimeMs / 1000; }
+    setTimeMs(nextTimeMs);
   }
 
   function updateBlueprint(update: (draft: EditorBlueprint) => void) {
@@ -1314,7 +1322,14 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
         </div>
       </nav>}
 
-      {isDemo && <audio hidden ref={demoAudioRef} src={selectedDemoTrack.audioUrl} preload="metadata" onLoadedMetadata={(event) => setDemoAudioDurationMs(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration * 1000 : null)} onError={() => setDemoStatus(`${selectedDemoTrack.title}の音源を読み込めません。`)} onEnded={() => { setPlaying(false); setTimeMs(timeline.durationMs); }} aria-label="デモ音源" />}
+      {isDemo && <audio hidden ref={demoAudioRef} src={selectedDemoTrack.audioUrl} preload="metadata" onLoadedMetadata={(event) => {
+        const audio = event.currentTarget;
+        const durationMs = Number.isFinite(audio.duration) ? audio.duration * 1000 : null;
+        if (durationMs !== null && timeMs > 0) audio.currentTime = Math.min(timeMs, timeline.durationMs, durationMs) / 1000;
+        setDemoAudioDurationMs(durationMs);
+      }} onTimeUpdate={(event) => {
+        if (demoAudioDurationMs !== null && !event.currentTarget.seeking) setTimeMs(Math.min(timeline.durationMs, event.currentTarget.currentTime * 1000));
+      }} onSeeked={(event) => setTimeMs(Math.min(timeline.durationMs, event.currentTarget.currentTime * 1000))} onPause={(event) => setTimeMs(Math.min(timeline.durationMs, event.currentTarget.currentTime * 1000))} onError={() => setDemoStatus(`${selectedDemoTrack.title}の音源を読み込めません。`)} onEnded={() => { setPlaying(false); setTimeMs(timeline.durationMs); }} aria-label="デモ音源" />}
       {!isDemo && playbackAudioUrl && <audio hidden ref={playbackAudioRef} src={playbackAudioUrl} preload="metadata" onEnded={() => { setPlaying(false); setTimeMs(timeline.durationMs); }} onError={() => { setPlaying(false); setApiStatus('選択した音源を読み込めませんでした。'); }} aria-label="編集プレビュー音声" />}
       {isDemo && demoStatus && demoStatus !== 'ready' && <p role="alert" className="notice-error">{demoStatus}</p>}
 
@@ -1478,7 +1493,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             <h2>1 · 再生とタイムライン</h2>
             {isDemo && <label className="field">デモ楽曲<select aria-label="デモ楽曲" value={selectedDemoId} onChange={(event) => { setPlaying(false); setTimeMs(0); setDemoStatus('楽曲を切り替えています…'); setSelectedDemoId(event.target.value); }}>{demoTracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}</select></label>}
             <div className="playback-controls"><button className="primary-button" disabled={isDemo && demoStatus !== 'ready'} onClick={() => setPreviewPlaying(!playing)}>{playing ? '一時停止' : '再生'}</button><button disabled={isDemo && demoStatus !== 'ready'} onClick={stopPreview}>停止</button><output aria-label="再生位置" className="timeline-time">{(timeMs / 1000).toFixed(2)} s <span>/ {(timeline.durationMs / 1000).toFixed(2)} s</span></output></div>
-            <input aria-label="再生位置の調整" className="seek" type="range" min={0} max={timeline.durationMs} step={20} disabled={isDemo && demoStatus !== 'ready'} value={timeMs} onChange={(event) => seekPreview(Number(event.target.value))} />
+            <input aria-label="再生位置の調整" className="seek" type="range" min={0} max={timeline.durationMs} step={20} disabled={isDemo && !demoTimelineReady} value={timeMs} onChange={(event) => seekPreview(Number(event.target.value))} />
             <div className="timeline-sources" aria-label="音源データの利用状況"><span className="timeline-sources-label">反応データ</span>{(['bass.envelope', 'kick.events', 'snare.events', 'drums.energy', 'vocals.envelope', 'other.envelope', 'music.energy'] as const).map((Source) => <span key={Source} className={`timeline-source ${sourceIsAvailable(Source, timeline) ? 'available' : 'missing'}`} title={`${sourceLabels[Source]}：${sourceIsAvailable(Source, timeline) ? '利用できます' : 'データがありません'}`}>{sourceLabels[Source]}</span>)}</div>
           </section>
 
