@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiUrl } from './api-connection';
 import type { ChangeEvent, PointerEvent } from 'react';
 import { DEFAULT_GLOBAL_GRADIENT, demoTimeline, newEditorBlueprint, validateBlueprint } from './editor-model';
-import type { Background, EditorBlueprint, Effect, EffectColorMode, FeatureTimeline, GlobalGradient, Region, RegionGeometry } from './editor-model';
+import type { Background, EditorBlueprint, Effect, EffectColorMode, FeatureTimeline, GlobalGradient, ImageLayer, Region, RegionGeometry } from './editor-model';
 import { renderEditorFrame } from './renderer';
 import type { RenderAssets } from './renderer';
 import { inferAudioMimeType, parseProjectFile, serializeProject } from './project-file';
@@ -227,6 +227,12 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   const [polygonDraft, setPolygonDraft] = useState<Array<{ x: number; y: number }>>([]);
   const [rectDraft, setRectDraft] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [layerImages, setLayerImages] = useState<Record<string, HTMLImageElement>>({});
+  const [selectedImageLayerId, setSelectedImageLayerId] = useState<string | null>(null);
+  const [imageAspectLocked, setImageAspectLocked] = useState(false);
+  const imageDrag = useRef<{ pointerId: number; startX: number; startY: number; x: number; y: number; width: number; height: number; resize: boolean } | null>(null);
+  const [imageResizeMode, setImageResizeMode] = useState(false);
+  const [imageUploadMode, setImageUploadMode] = useState<'add' | 'replace'>('add');
   const [imageError, setImageError] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [playbackAudioUrl, setPlaybackAudioUrl] = useState('');
@@ -274,8 +280,9 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   const playbackAudioRef = useRef<HTMLAudioElement>(null);
   const selectedDemoTrack = demoTracks.find((track) => track.id === selectedDemoId) ?? demoTracks[0]!;
   const background = blueprint.background;
+  const selectedImageLayer = blueprint.imageLayers?.find((layer) => layer.id === selectedImageLayerId);
   const imageSource = background.kind === 'image' ? background.src : null;
-  const assets = useMemo<RenderAssets>(() => image && imageSource ? { [imageSource]: image } : {}, [imageSource, image]);
+  const assets = useMemo<RenderAssets>(() => ({ ...(image && imageSource ? { [imageSource]: image } : {}), ...Object.fromEntries((blueprint.imageLayers ?? []).flatMap((layer) => layerImages[layer.id] ? [[layer.src, layerImages[layer.id]!]] : [])) }), [imageSource, image, blueprint.imageLayers, layerImages]);
   const selectedRegion = blueprint.regions.find((region) => region.id === selectedRegionId);
   const selectedEffect = blueprint.effects.find((effect) => effect.id === selectedEffectId);
   const selectedBinding = blueprint.bindings.find((binding) => binding.effectId === selectedEffectId);
@@ -552,6 +559,15 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }, [imageSource]);
 
   useEffect(() => {
+    let cancelled = false;
+    const layers = blueprint.imageLayers ?? [];
+    void Promise.all(layers.map(async (layer) => [layer.id, await loadImage(layer.src)] as const)).then((loaded) => {
+      if (!cancelled) setLayerImages(Object.fromEntries(loaded));
+    }).catch(() => { if (!cancelled) setImageError('画像を読み込めませんでした。PNG/JPEGを選び直してください。'); });
+    return () => { cancelled = true; };
+  }, [blueprint.imageLayers]);
+
+  useEffect(() => {
     if (!playing) return undefined;
     if (isDemo || (variant === 'app' && playbackAudioUrl)) {
       const timer = window.setInterval(() => {
@@ -794,6 +810,15 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
 
   function onPointerDown(event: PointerEvent<HTMLCanvasElement>) {
     if (regionEditMode) return;
+    if (tool === 'select' && selectedImageLayer) {
+      const point = normalizedPoint(event);
+      const px = point.x * blueprint.width; const py = point.y * blueprint.height;
+      if (px >= selectedImageLayer.x && px <= selectedImageLayer.x + selectedImageLayer.width && py >= selectedImageLayer.y && py <= selectedImageLayer.y + selectedImageLayer.height) {
+        imageDrag.current = { pointerId: event.pointerId, startX: px, startY: py, x: selectedImageLayer.x, y: selectedImageLayer.y, width: selectedImageLayer.width, height: selectedImageLayer.height, resize: imageResizeMode };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+    }
     if (tool === 'rect') {
       const start = normalizedPoint(event);
       dragStart.current = start;
@@ -810,6 +835,12 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }
 
   function onPointerMove(event: PointerEvent<HTMLCanvasElement>) {
+    const imageMove = imageDrag.current;
+    if (imageMove && imageMove.pointerId === event.pointerId && selectedImageLayer) {
+      const point = normalizedPoint(event); const dx = point.x * blueprint.width - imageMove.startX; const dy = point.y * blueprint.height - imageMove.startY;
+      updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (!layer) return; if (imageMove.resize) { const width = Math.max(1, imageMove.width + dx); layer.width = width; layer.height = imageAspectLocked ? width / (layer.sourceWidth / layer.sourceHeight) : Math.max(1, imageMove.height + dy); } else { layer.x = imageMove.x + dx; layer.y = imageMove.y + dy; } });
+      return;
+    }
     const drag = effectPositionDrag.current;
     if (drag && drag.pointerId === event.pointerId) {
       event.preventDefault();
@@ -827,6 +858,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }
 
   function onPointerUp(event: PointerEvent<HTMLCanvasElement>) {
+    if (imageDrag.current?.pointerId === event.pointerId) { imageDrag.current = null; return; }
     if (finishEffectPositionPointer(event)) return;
     if (finishRegionEditPointer(event)) return;
     if (!dragStart.current) return;
@@ -992,21 +1024,30 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   }
 
   function onImageSelected(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 10 * 1024 * 1024) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (!files.length) return;
+    if (files.some((file) => !['image/png', 'image/jpeg'].includes(file.type) || file.size > 10 * 1024 * 1024)) {
       setImageError('PNG/JPEG形式、10 MB以下の画像を選択してください。');
-      event.target.value = '';
       return;
     }
     setImageError('');
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') { setImage(null); updateBackground({ kind: 'image', src: reader.result }); }
-      else setImageError('画像ファイルを読み込めませんでした。');
-    };
-    reader.onerror = () => setImageError('画像ファイルを読み込めませんでした。');
-    reader.readAsDataURL(file);
+    void Promise.all(files.map(async (file, index) => {
+      const src = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('画像ファイルを読み込めませんでした。')); reader.onerror = () => reject(new Error('画像ファイルを読み込めませんでした。')); reader.readAsDataURL(file); });
+      const loaded = await loadImage(src);
+      if (loaded.naturalWidth > 20000 || loaded.naturalHeight > 20000 || loaded.naturalWidth * loaded.naturalHeight > 100_000_000) throw new Error('画像の寸法が大きすぎます。');
+      return { id: `image-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`, src, x: 0, y: 0, width: blueprint.width, height: blueprint.height, sourceWidth: loaded.naturalWidth, sourceHeight: loaded.naturalHeight, fit: 'contain' as const } satisfies ImageLayer;
+    })).then((layers) => {
+      updateBlueprint((draft) => {
+        if (imageUploadMode === 'replace' && selectedImageLayerId && draft.imageLayers?.some((layer) => layer.id === selectedImageLayerId)) {
+          const old = draft.imageLayers.find((layer) => layer.id === selectedImageLayerId)!;
+          draft.imageLayers[draft.imageLayers.indexOf(old)] = { ...layers[0]!, id: old.id, x: old.x, y: old.y, width: old.width, height: old.height, fit: old.fit };
+        } else {
+          draft.imageLayers = [...(draft.imageLayers ?? []), ...layers];
+        }
+      });
+      if (!(imageUploadMode === 'replace' && selectedImageLayerId)) setSelectedImageLayerId(layers.at(-1)?.id ?? null);
+    }).catch((error: unknown) => setImageError(error instanceof Error ? error.message : '画像ファイルを読み込めませんでした。'));
   }
 
   async function onAudioSelected(event: ChangeEvent<HTMLInputElement>) {
@@ -1401,7 +1442,23 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             </div>
             {background.kind === 'solid' && <label className="field">背景色<input aria-label="背景色" type="color" value={background.color} onChange={(event) => updateBackground({ ...background, color: event.target.value })} /></label>}
             {background.kind === 'gradient' && <div className="color-pair"><label className="field">開始色<input aria-label="グラデーションの開始色" type="color" value={background.from} onChange={(event) => updateBackground({ ...background, from: event.target.value })} /></label><label className="field">終了色<input aria-label="グラデーションの終了色" type="color" value={background.to} onChange={(event) => updateBackground({ ...background, to: event.target.value })} /></label><label className="field">角度<input aria-label="グラデーションの角度" type="number" min={0} max={360} value={background.angleDeg} onChange={(event) => updateBackground({ ...background, angleDeg: Math.min(360, Math.max(0, Number(event.target.value))) })} /></label></div>}
-            {!isDemo && <label className="file-button">画像を選択（PNG / JPEG）<input aria-label="背景画像を選択" type="file" accept="image/png,image/jpeg" onChange={onImageSelected} /></label>}
+            {background.kind === 'image' && <label className="field">背景画像の表示方法<select aria-label="背景画像の表示方法" value={background.fit ?? 'contain'} onChange={(event) => updateBackground({ ...background, fit: event.target.value as ImageLayer['fit'] })}><option value="contain">全体を表示</option><option value="cover">キャンバスを覆う</option><option value="stretch">縦横に伸縮</option></select></label>}
+            <label className="file-button">画像を追加（PNG / JPEG）<input aria-label="背景画像を選択" type="file" accept="image/png,image/jpeg" multiple onChange={onImageSelected} /></label>
+            <div className="segmented" aria-label="画像読み込み方法"><button className={imageUploadMode === 'add' ? 'active' : ''} onClick={() => setImageUploadMode('add')}>新しい画像を追加</button><button className={imageUploadMode === 'replace' ? 'active' : ''} onClick={() => setImageUploadMode('replace')} disabled={!selectedImageLayer}>選択画像を置き換え</button></div>
+            {blueprint.imageLayers && blueprint.imageLayers.length > 0 && <div className="image-layer-controls" aria-label="画像レイヤー">
+              {blueprint.imageLayers.map((layer, index) => <div className={layer.id === selectedImageLayerId ? 'image-layer selected' : 'image-layer'} key={layer.id}><button aria-pressed={layer.id === selectedImageLayerId} onClick={() => setSelectedImageLayerId(layer.id)}>画像 {index + 1}</button><button aria-label={`画像 ${index + 1} を前面へ`} onClick={() => updateBlueprint((draft) => { const items = draft.imageLayers ?? []; const at = items.findIndex((item) => item.id === layer.id); if (at >= 0 && at < items.length - 1) [items[at], items[at + 1]] = [items[at + 1]!, items[at]!]; })}>前へ</button><button aria-label={`画像 ${index + 1} を削除`} onClick={() => { updateBlueprint((draft) => { draft.imageLayers = (draft.imageLayers ?? []).filter((item) => item.id !== layer.id); }); if (selectedImageLayerId === layer.id) setSelectedImageLayerId(null); }}>削除</button></div>)}
+            </div>}
+            {selectedImageLayer && <div className="image-transform-controls">
+              <label className="field">表示方法<select aria-label="画像表示方法" value={selectedImageLayer.fit} onChange={(event) => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) layer.fit = event.target.value as ImageLayer['fit']; })}><option value="contain">全体を表示</option><option value="cover">キャンバスを覆う</option><option value="stretch">縦横に伸縮</option></select></label>
+              {(['x', 'y', 'width', 'height'] as const).map((key) => <label className="field" key={key}>{({ x: '位置 X', y: '位置 Y', width: '幅', height: '高さ' })[key]}<input aria-label={`画像${({ x: '位置 X', y: '位置 Y', width: '幅', height: '高さ' })[key]}`} type="number" min={key === 'width' || key === 'height' ? 1 : -20000} max={20000} value={Math.round(selectedImageLayer[key])} onChange={(event) => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) layer[key] = Number(event.target.value); })} /></label>)}
+              <label className="field"><input aria-label="縦横比を固定" type="checkbox" checked={imageAspectLocked} onChange={(event) => { setImageAspectLocked(event.target.checked); const ratio = selectedImageLayer.sourceWidth / selectedImageLayer.sourceHeight; if (event.target.checked) updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) layer.height = layer.width / ratio; }); }} />縦横比を固定</label>
+              <button aria-pressed={imageResizeMode} onClick={() => setImageResizeMode(!imageResizeMode)}>{imageResizeMode ? 'ドラッグでサイズ変更中' : 'ドラッグで位置変更中'}</button>
+              <button aria-label="画像を拡大" onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) { layer.width *= 1.1; layer.height = imageAspectLocked ? layer.width / (layer.sourceWidth / layer.sourceHeight) : layer.height * 1.1; } })}>拡大</button><button aria-label="画像を縮小" onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) { layer.width *= 0.9; layer.height = imageAspectLocked ? layer.width / (layer.sourceWidth / layer.sourceHeight) : layer.height * 0.9; } })}>縮小</button>
+              <button onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) layer.crop = { x: layer.sourceWidth * 0.1, y: layer.sourceHeight * 0.1, width: layer.sourceWidth * 0.8, height: layer.sourceHeight * 0.8 }; })}>中央をクロップ（再編集）</button>
+              {selectedImageLayer.crop && (['x', 'y', 'width', 'height'] as const).map((key) => <label className="field" key={`crop-${key}`}>Crop {key}<input type="number" min={0} value={Math.round(selectedImageLayer.crop?.[key] ?? 0)} onChange={(event) => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer?.crop) layer.crop[key] = Number(event.target.value); })} /></label>)}
+              <button onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) { layer.x = 0; layer.y = 0; layer.width = draft.width; layer.height = draft.height; delete layer.crop; } })}>位置・サイズ・クロップをリセット</button>
+              <button onClick={() => updateBlueprint((draft) => { const layer = draft.imageLayers?.find((item) => item.id === selectedImageLayer.id); if (layer) delete layer.crop; })}>クロップ解除</button>
+            </div>}
             {background.kind === 'image' && <button className="quiet-button" onClick={() => updateBackground({ kind: 'solid', color: '#141824' })}>画像を削除</button>}
             {imageError && <p role="alert" className="field-error">{imageError}</p>}
           </section>

@@ -12,6 +12,7 @@ function fakeContext() {
   const clips: string[] = [];
   const paintedClipPaths: Array<string | null> = [];
   const imageClipPaths: Array<string | null> = [];
+  const imageDrawArgs: unknown[][] = [];
   const ellipses: Array<{ x: number; y: number; radiusX: number; radiusY: number; alpha: number }> = [];
   const stateStack: Array<string | null> = [];
   let path = '';
@@ -24,12 +25,12 @@ function fakeContext() {
     shadowColor: '', shadowBlur: 0,
     clearRect() {}, fillRect() { draws += 1; fills.push({ style: fillStyle, alpha: globalAlpha }); if (activeClip) paintedClipPaths.push(activeClip); },
     createLinearGradient() { return { addColorStop() {} } as CanvasGradient; },
-    drawImage() { fills.push({ style: 'image', alpha: globalAlpha }); imageClipPaths.push(activeClip); },
+    drawImage(...args: unknown[]) { fills.push({ style: 'image', alpha: globalAlpha }); imageClipPaths.push(activeClip); imageDrawArgs.push(args); },
     beginPath() { path = ''; }, rect(x: number, y: number, width: number, height: number) { path += `rect:${x},${y},${width},${height}`; },
     moveTo(x: number, y: number) { path += `move:${x},${y}`; }, lineTo(x: number, y: number) { path += `line:${x},${y}`; }, bezierCurveTo() { path += ':curve'; }, closePath() { path += ':close'; },
     clip() { clips.push(path); activeClip = path; }, save() { stateStack.push(activeClip); }, restore() { activeClip = stateStack.pop() ?? null; }, translate() {}, rotate() {}, scale() {}, ellipse(x: number, y: number, radiusX: number, radiusY: number) { ellipses.push({ x, y, radiusX, radiusY, alpha: globalAlpha }); }, fill() { draws += 1; if (activeClip) paintedClipPaths.push(activeClip); }, stroke() { draws += 1; if (activeClip) paintedClipPaths.push(activeClip); }, strokeRect() {}, setLineDash() {},
   } as unknown as CanvasRenderingContext2D;
-  return { context, fills, clips, paintedClipPaths, imageClipPaths, ellipses, get draws() { return draws; } };
+  return { context, fills, clips, paintedClipPaths, imageClipPaths, imageDrawArgs, ellipses, get draws() { return draws; } };
 }
 
 function allEffectsBlueprint(): EditorBlueprint {
@@ -1117,6 +1118,16 @@ describe('editor renderer', () => {
     const image = fakeContext();
     renderEditorFrame(image.context, { ...blueprint, background: { kind: 'image', src } }, demoTimeline, 500, { [src]: {} as CanvasImageSource });
     expect(image.fills.some((fill) => fill.style === 'image')).toBe(true);
+    expect(image.imageDrawArgs[0]).toHaveLength(5); // contain uses source ratio and leaves canvas background visible
+
+    const layers = fakeContext();
+    const src2 = 'data:image/jpeg;base64,def';
+    renderEditorFrame(layers.context, { ...blueprint, background: { kind: 'solid', color: '#123456' }, imageLayers: [
+      { id: 'portrait', src, x: 10, y: 20, width: 100, height: 200, sourceWidth: 400, sourceHeight: 800, fit: 'contain' },
+      { id: 'landscape', src: src2, x: 150, y: 20, width: 200, height: 100, sourceWidth: 800, sourceHeight: 400, fit: 'cover' },
+    ] }, demoTimeline, 500, { [src]: {} as CanvasImageSource, [src2]: {} as CanvasImageSource });
+    expect(layers.imageDrawArgs).toHaveLength(2);
+    expect(layers.imageClipPaths).toHaveLength(2);
   });
 
   it('rejects invalid references, out-of-bounds polygons, non-finite values and unordered timelines', () => {
