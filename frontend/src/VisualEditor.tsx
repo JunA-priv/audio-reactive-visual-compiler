@@ -1672,7 +1672,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
                   : <label className="field">表示条件<select aria-label="表示条件" value={selectedEffect.visibilityMode ?? 'triggered'} onChange={(event) => updateEffect('visibilityMode', event.target.value)}><option value="triggered" disabled={selectedEffect.audioReactive === false}>音に反応</option><option value="always">常に表示</option></select></label>}
                 {selectedEffect.kind === 'particles'
                   ? <label className="field">音に反応<select aria-label="音に反応" value="true" disabled><option value="true">オン</option></select></label>
-                  : <label className="field">Audio Reactive<select aria-label="Audio Reactive" value={selectedEffect.audioReactive === false ? 'false' : 'true'} onChange={(event) => updateEffect('audioReactive', event.target.value === 'true')}><option value="true">オン</option><option value="false">オフ（常に表示）</option></select></label>}
+                  : <label className="field">音に反応<select aria-label="音に反応" value={selectedEffect.audioReactive === false ? 'false' : 'true'} onChange={(event) => updateEffect('audioReactive', event.target.value === 'true')}><option value="true">オン</option><option value="false">オフ（常に表示）</option></select></label>}
                 <label className="field">適用範囲<select aria-label="適用範囲" value={selectedEffect.regionId} onChange={(event) => updateEffect('regionId', event.target.value)}>{blueprint.regions.map((region) => <option key={region.id} value={region.id}>{regionDisplayName(region.name)}</option>)}</select></label>
                 <details className="advanced-settings" key={`${selectedEffectId}:${selectedEffect.kind}`}>
                   <summary>詳細設定 · {titleFor(selectedEffect.kind)}</summary>
