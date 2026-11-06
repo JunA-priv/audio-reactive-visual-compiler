@@ -19,12 +19,12 @@ async function call<T>(session: AuthSession, path: string, init: RequestInit = {
     let code = '';
     try { code = (await response.json() as { error?: { code?: string } }).error?.code ?? ''; } catch { /* sanitized below */ }
     const messages: Record<string, string> = {
-      revision_conflict: '別の更新が先に保存されました。一覧から最新Projectを読み込み直してください。',
-      project_limit_reached: 'Projectの上限に達しています。', project_too_large: 'Projectデータが上限を超えています。',
+      revision_conflict: '別の更新が先に保存されました。一覧を更新して、最新のプロジェクトを読み込み直してください。',
+      project_limit_reached: 'プロジェクトの保存数が上限に達しています。', project_too_large: 'プロジェクトのデータが大きすぎます。',
       invalid_asset_reference: '素材参照を検証できませんでした。', asset_limit_reached: '素材の容量上限に達しています。',
       asset_referenced: 'Projectから素材参照を外してから削除してください。', project_asset_cleanup_failed: '素材の削除が完了しませんでした。Projectは保持されています。再試行してください。',
     };
-    throw new Error(messages[code] ?? `クラウドAPIに失敗しました（HTTP ${response.status}）。`);
+    throw new Error(messages[code] ?? `クラウドのプロジェクトを操作できませんでした。時間をおいてもう一度お試しください。`);
   }
   if (response.status === 204) return undefined as T;
   return await response.json() as T;
