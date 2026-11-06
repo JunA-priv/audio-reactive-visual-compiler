@@ -111,7 +111,7 @@ describe('video export', () => {
     expect(selectWebMMimeType(false)).toContain('video/webm');
     const unsupported = { isTypeSupported: () => false };
     vi.stubGlobal('MediaRecorder', unsupported);
-    expect(() => selectWebMMimeType(true)).toThrow(/codec/);
+    expect(() => selectWebMMimeType(true)).toThrow(/別のブラウザーをお試しください/);
   });
 
   it('requires browser-declared H.264 and AAC support for the matching MP4 mode', () => {
@@ -120,7 +120,7 @@ describe('video export', () => {
     expect(isMP4Supported(false)).toBe(true);
     expect(isMP4Supported(true)).toBe(false);
     expect(selectMP4MimeType(false)).toContain('avc1.');
-    expect(() => selectMP4MimeType(true)).toThrow(/H.264 \/ AAC/);
+    expect(() => selectMP4MimeType(true)).toThrow(/音声付きMP4に対応していません/);
     FakeMediaRecorder.isTypeSupported.mockImplementation((mime) => mime.includes('video/mp4') && mime.includes('mp4a.40.2'));
     expect(isMP4Supported(true)).toBe(true);
     expect(selectMP4MimeType(true)).toContain('mp4a.40.2');

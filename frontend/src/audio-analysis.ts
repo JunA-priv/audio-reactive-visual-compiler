@@ -120,8 +120,8 @@ export async function analyzeQueuedAudioClip(file: File, accessToken: string, si
     if (response.status === 401) { window.dispatchEvent(new Event('arvc-auth-expired')); throw new Error('セッションが切れました。再度ログインしてください。'); }
     if (response.status === 413) throw new Error('トリミング音声が16 MiBを超えています。');
     if (response.status === 422) throw new Error('解析サーバーが音声データを受け付けませんでした。音声形式と60秒以内の選択範囲を確認してください。');
-    if (response.status === 429) throw new Error('解析キューが満杯です。少し待ってから再試行してください。');
-    if (response.status === 504) throw new Error('音声解析が制限時間を超えました。');
+    if (response.status === 429) throw new Error('現在、解析を利用できません。時間をおいてお試しください。');
+    if (response.status === 504) throw new Error('解析できませんでした。もう一度お試しください。');
     if (response.status === 499 || signal.aborted) throw new DOMException('分析を中断しました。', 'AbortError');
     throw new Error(readJobError(raw) ?? '音声解析に失敗しました。');
   }
@@ -166,7 +166,7 @@ export async function analyzeAudioClipSync(file:File,accessToken:string,signal:A
     if(response.status===401){window.dispatchEvent(new Event('arvc-auth-expired'));throw new Error('セッションが切れました。再度ログインしてください。');}
     if(response.status===413)throw new Error('トリミング音声が16 MiBを超えています。');
     if(response.status===422)throw new Error('解析サーバーが音声データを受け付けませんでした。音声形式と60秒以内の選択範囲を確認してください。');
-    if(response.status===429)throw new Error('別の音声解析が進行中です。完了後に再試行してください。');
+    if(response.status===429)throw new Error('現在、解析を利用できません。時間をおいてお試しください。');
     if(response.status===504)throw new Error('音声解析が制限時間を超えました。');
     if(response.status===499||signal.aborted)throw new DOMException('分析を中断しました。','AbortError');
     throw new Error('音声解析に失敗しました。');
