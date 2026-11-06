@@ -133,7 +133,7 @@ async function authRequest(path: string, body: Record<string, string>): Promise<
   const response = await fetch(`${url}/auth/v1/${path}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', apikey: key }, body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(response.status === 400 || response.status === 401 ? 'メールアドレスまたはパスワードを確認してください。' : 'Supabase Authに接続できません。');
+  if (!response.ok) throw new Error(response.status === 400 || response.status === 401 ? 'メールアドレスまたはパスワードを確認してください。' : 'ログインできませんでした。時間をおいてもう一度お試しください。');
   if (path === 'logout') return null;
   return fromAuthResponse(await response.json());
 }
