@@ -173,7 +173,7 @@ npm test
 npm run build
 ```
 
-標準SCNet checkpointはGitやpackageに含まれず、自動ダウンロードもしません。配置場所、SHA-256、Python環境の準備は[Python Island README](python-island/README.md)を参照してください。API / DB / Authを含む構成はEnvironment Guideのprofile launcherを利用してください。
+標準SCNet checkpointはアプリケーションコードと分離して管理し、SHA-256を照合してPython Islandへ配置します。配置手順とPython環境の準備は[Python Island README](python-island/README.md)を参照してください。API / DB / Authを含む構成はEnvironment Guideのprofile launcherを利用してください。
 
 ## Scope and Evaluation
 
@@ -197,3 +197,4 @@ npm run build
 - Cloud Run / Tasks / Scheduler、Hosted Supabase、Cloudflare Pagesの運用情報をrelease documentationと同期し、負荷・復旧の運用手順を継続的に整備する。
 
 Effect候補の詳細は[Visual Effect Roadmap](docs/VISUAL_EFFECT_ROADMAP.md)を参照してください。RoadmapはEffect追加を検討する際の設計候補をまとめています。
+
