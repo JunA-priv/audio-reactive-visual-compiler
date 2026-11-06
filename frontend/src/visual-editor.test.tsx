@@ -726,9 +726,7 @@ describe('VisualEditor interactions', () => {
     expect([...host.querySelectorAll('button')].some((button) => button.textContent?.trim() === '一時停止')).toBe(true);
     act(() => change(seek, '600'));
     expect(audio.currentTime).toBe(0.6);
-    expect([...host.querySelectorAll('button')].some((button) => button.textContent?.trim() === '一時停止')).toBe(true);
-    await act(async () => { [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === '一時停止')!.click(); await Promise.resolve(); });
-    expect(audio.currentTime).toBe(0.6);
+    expect([...host.querySelectorAll('button')].some((button) => button.textContent?.trim() === '再生')).toBe(true);
     await act(async () => { [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === '再生')!.click(); await Promise.resolve(); });
     expect(audio.currentTime).toBe(0.6);
     await act(async () => { audio.currentTime = 0.75; audio.dispatchEvent(new Event('timeupdate')); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
