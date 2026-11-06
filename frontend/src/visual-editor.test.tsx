@@ -96,7 +96,8 @@ describe('VisualEditor interactions', () => {
     expect(format.value).toBe('mp4');
     expect(format.querySelector<HTMLOptionElement>('option[value="mp4"]')?.disabled).toBe(true);
     expect(host.querySelector<HTMLButtonElement>('.export-actions .primary-button')?.disabled).toBe(true);
-    expect(host.textContent).toContain('H.264 / AAC');
+    expect(host.textContent).toContain('MP4に対応していません');
+    expect(host.textContent).not.toContain('H.264');
     act(() => root.unmount());
   });
 
@@ -138,9 +139,9 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector<HTMLInputElement>('[aria-label="エフェクトの色"]')?.disabled).toBe(true);
     expect(host.querySelector<HTMLInputElement>('[aria-label="不透明度"]')?.value).toBe('1');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]')?.value).toBe('always');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]')?.value).toBe('true');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="音に反応"]')?.value).toBe('true');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="適用範囲"]')?.value).toBe('region-stage');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('music.energy');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('music.energy');
     expect(host.querySelector<HTMLInputElement>('[aria-label="反応量"]')?.value).toBe('0.9');
     expect(host.querySelector<HTMLInputElement>('[aria-label="しきい値"]')?.value).toBe('0.1');
     expect(host.querySelector<HTMLInputElement>('.binding-fields [aria-label="Attack（ms）"]')?.value).toBe('60');
@@ -522,7 +523,7 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector<HTMLInputElement>('[aria-label="Release（ms）"]')?.value).toBe('260');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]')?.value).toBe('always');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]')?.value).toBe('true');
-    const gateMode = host.querySelector<HTMLSelectElement>('[aria-label="Kick Detection Gate Mode"]')!;
+    const gateMode = host.querySelector<HTMLSelectElement>('[aria-label="キック音の検出感度"]')!;
     expect(gateMode.value).toBe('middle');
     expect(gateMode.closest('.workflow-audio')).toBeNull();
     expect(gateMode.closest('.effects-panel')).not.toBeNull();
@@ -1021,7 +1022,7 @@ describe('VisualEditor interactions', () => {
     Object.defineProperty(projectInput, 'files', { configurable: true, value: [new File([projectBlob], 'analyzed.arvproj', { type: 'application/json' })] });
     await act(async () => { projectInput.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
     expect(host.textContent).toContain('解析結果からエフェクトを生成');
-    expect(host.textContent).toContain('プロジェクトを復元しました。');
+    expect(host.textContent).toContain('プロジェクトを読み込みました。');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="音声"]')?.value).toBe('with-audio');
     const playback = host.querySelector<HTMLAudioElement>('[aria-label="編集プレビュー音声"]')!;
     expect(playback.src).toBe('blob:project-audio');
@@ -1043,7 +1044,7 @@ describe('VisualEditor interactions', () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:retry-test');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    vi.mocked(exportWebM).mockRejectedValueOnce(new Error('encoder fixture failure'));
+    vi.mocked(exportWebM).mockRejectedValueOnce(new Error('動画を作成できませんでした。'));
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -1080,7 +1081,7 @@ describe('VisualEditor interactions', () => {
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
     expect([...host.querySelectorAll('.item-list button')].map((button) => button.textContent)).toEqual(regionNamesBefore);
-    expect(host.textContent).toContain('Invalid project file');
+    expect(host.textContent).toContain('ファイルを読み込めませんでした。');
     act(() => root.unmount());
   });
 
@@ -1292,6 +1293,8 @@ describe('VisualEditor interactions', () => {
     const savedUrl = vi.mocked(URL.createObjectURL).mock.results.at(-1)?.value as string;
     expect(savedUrl).toBe('blob:region-project');
     expect(host.textContent).toContain('プロジェクトを保存しました');
+    expect(host.textContent).toContain('保存したファイルには、使用した音源や画像が含まれる場合があります。共有する際は内容をご確認ください。');
+    expect(host.textContent).not.toContain('暗号化');
     const projectData = vi.mocked(URL.createObjectURL).mock.calls.at(-1)?.[0] as Blob;
     const projectEnvelope = JSON.parse(await projectData.text()) as { formatVersion: number };
     expect(projectEnvelope.formatVersion).toBe(1);
