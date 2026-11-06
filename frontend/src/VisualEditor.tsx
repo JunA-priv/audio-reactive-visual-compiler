@@ -332,7 +332,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     setAudioAnalysisStatus('保存された解析ジョブを復元しています…');
     void restoreAudioAnalysisJob(authSession.accessToken, controller.signal, (job: AudioJobStatus) => {
       if (job.state === 'queued') setAudioAnalysisStatus(job.queuePosition ? `解析待ち：前に${Math.max(0, job.queuePosition - 1)}件あります。` : '解析待ちです。');
-      else if (job.state === 'running') setAudioAnalysisStatus('SCNetで音源を解析しています…');
+      else if (job.state === 'running') setAudioAnalysisStatus('解析中...');
     }).then((result) => {
       if (!result || controller.signal.aborted || sequence !== audioDecodeSequence.current) return;
       setTimeline(result.featureTimeline);
@@ -1212,7 +1212,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     const controller = new AbortController();
     audioAnalysisController.current = controller;
     setAudioAnalysisBusy(true);
-    setAudioAnalysisStatus('選択範囲をトリミングし、音源解析を実行しています…');
+    setAudioAnalysisStatus('解析中...');
     try {
       const session = await currentSession();
       const clip = await trimAudioToWav(SourceAudioFile, rangeStart, rangeEnd);
@@ -1236,11 +1236,11 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       setSourceDuration(0);
       setSourceWaveform(null);
       setRangeSelectionOpen(false);
-      setAudioAnalysisStatus(`解析完了：${(clip.durationMs / 1000).toFixed(2)}秒の選択した音源を編集画面に読み込みました。`);
+      setAudioAnalysisStatus('解析が完了しました。');
     } catch (error) {
       if (audioAnalysisController.current === controller) {
-        if (error instanceof DOMException && error.name === 'AbortError') setAudioAnalysisStatus('解析を中断しました。選択範囲を確認して再試行できます。');
-        else setAudioAnalysisStatus(error instanceof Error ? error.message : '音源解析に失敗しました。');
+        if (error instanceof DOMException && error.name === 'AbortError') setAudioAnalysisStatus('解析をキャンセルしました。');
+        else setAudioAnalysisStatus(error instanceof Error ? error.message : '解析できませんでした。もう一度お試しください。');
       }
     } finally {
       if (audioAnalysisController.current === controller) {
@@ -1255,7 +1255,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     try {
       const blob = await serializeProject(blueprint, timeline, audioFile, new Date(), musicSummary);
       downloadBlob(blob, 'audio-reactive-project.arvproj');
-      setProjectStatus('プロジェクトを保存しました。プロジェクトファイル（.arvproj）は暗号化されていないローカルファイルです。');
+      setProjectStatus('プロジェクトを保存しました。保存したファイルには、使用した音源や画像が含まれる場合があります。共有する際は内容をご確認ください。');
     } catch (error) {
       setProjectStatus(error instanceof Error ? error.message : 'プロジェクトを保存できませんでした。');
     }
@@ -1289,19 +1289,17 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       setSelectedRegionId(restored.blueprint.regions[0]?.id ?? null);
       setSelectedEffectId(restored.blueprint.effects[0]?.id ?? null);
       setProjectStatus(restored.musicSummary
-        ? 'プロジェクトを復元しました。解析結果を使ってエフェクトを再生成できます。'
-        : `プロジェクトを復元しました。${restored.audioFile ? 'このプロジェクトには解析要約がありません。エフェクトを再生成するには音源を再解析してください。' : ''}`);
-    } catch (error) {
-      setProjectStatus(error instanceof Error ? error.message : 'プロジェクトを読み込めませんでした。編集中の状態は維持しています。');
+        ? 'プロジェクトを読み込みました。'
+        : `プロジェクトを読み込みました。${restored.audioFile ? 'エフェクトを再生成するには音源をもう一度解析してください。' : ''}`);
+    } catch {
+      setProjectStatus('ファイルを読み込めませんでした。');
     }
   }
 
   async function startVideoExport() {
     if (exporting) return;
     if (exportFormat === 'mp4' && !isMP4Supported(exportWithAudio)) {
-      setExportStatus(exportWithAudio
-        ? 'このブラウザーはH.264 / AACのMP4出力に対応していません。WebMを選択してください。'
-        : 'このブラウザーはH.264のMP4出力に対応していません。WebMを選択してください。');
+      setExportStatus('このブラウザーは現在の設定でMP4に対応していません。WebMを選択してください。');
       return;
     }
     const controller = new AbortController();
@@ -1309,7 +1307,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     setExporting(true);
     setPlaying(false);
     setExportProgress(0);
-    setExportStatus('動画を生成しています…');
+    setExportStatus('動画を作成しています...');
     try {
       const options = {
         blueprint, timeline, assets, fps: exportFPS, scale: exportScale,
@@ -1320,10 +1318,10 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       const blob = exportFormat === 'mp4' ? await exportMP4(options) : await exportWebM(options);
       const extension = exportFormat === 'mp4' ? 'mp4' : 'webm';
       downloadBlob(blob, `audio-reactive-${exportWithAudio ? 'with-audio' : 'silent'}.${extension}`);
-      setExportStatus(`動画を保存しました（${(blob.size / 1024 / 1024).toFixed(1)} MiB、${Math.round(timeline.durationMs / 1000)}s）。`);
+      setExportStatus('動画を保存しました。');
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') setExportStatus('動画出力を中断しました。');
-      else setExportStatus(error instanceof Error ? error.message : '動画を生成できませんでした。');
+      if (error instanceof DOMException && error.name === 'AbortError') setExportStatus('動画の作成をキャンセルしました。');
+      else setExportStatus('動画を作成できませんでした。');
     } finally {
       exportController.current = null;
       setExporting(false);
@@ -1559,8 +1557,8 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
           {!isDemo && <section className="panel-section workflow-export">
             <h2>5 · 書き出しとプロジェクト</h2>
             <label className="field export-field">音声<select aria-label="音声" value={exportWithAudio ? 'with-audio' : 'silent'} disabled={exporting} onChange={(event) => setExportWithAudio(event.target.value === 'with-audio')}><option value="silent">無音の動画</option><option value="with-audio">選択した音源を含める</option></select></label>
-            <label className="field export-field">動画形式<select aria-label="動画形式" value={exportFormat} disabled={exporting} onChange={(event) => setExportFormat(event.target.value as VideoFormat)}><option value="webm">WebM</option><option value="mp4" disabled={!isMP4Supported(exportWithAudio)}>MP4（H.264{exportWithAudio ? ' / AAC' : ''}）</option></select></label>
-            {!isMP4Supported(exportWithAudio) && <p className="workflow-prerequisite">このブラウザーは現在の音声設定で{exportWithAudio ? 'H.264 / AAC' : 'H.264'}のMP4出力に対応していません。WebMは引き続き利用できます。</p>}
+            <label className="field export-field">動画形式<select aria-label="動画形式" value={exportFormat} disabled={exporting} onChange={(event) => setExportFormat(event.target.value as VideoFormat)}><option value="webm">WebM</option><option value="mp4" disabled={!isMP4Supported(exportWithAudio)}>MP4</option></select></label>
+            {!isMP4Supported(exportWithAudio) && <p className="workflow-prerequisite">このブラウザーは現在の設定でMP4に対応していません。WebMを選択してください。</p>}
             {exportWithAudio && !audioFile && <p className="workflow-prerequisite">音声付き動画には音源が必要です。音源を選択するか、無音の動画を選んでください。</p>}
             {(rangeSelectionOpen || audioAnalysisBusy) && <p className="workflow-prerequisite">範囲を解析が完了するまで書き出しは利用できません。</p>}
             <div className="export-options">
@@ -1658,7 +1656,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             <div className="accordion-content">
             <div className="effect-add-controls"><label className="field">分類<select aria-label="追加するエフェクトの分類" value={addCategory} onChange={(event) => setAddCategory(event.target.value as EffectCategory)}>{EFFECT_CATEGORIES.map((category) => <option key={category} value={category}>{({ 'Core / Transform': '基本・変形', Waveform: '波形', 'EQ / Spectrum': '周波数', 'Circular / Radial': '円形・放射', Particles: '粒子', Impacts: '衝撃', 'Ambient / Atmospheric': '雰囲気' } as Record<string, string>)[category] ?? category}</option>)}</select></label><label className="field">＋ エフェクトを追加<select aria-label="追加するエフェクト" defaultValue="" onChange={(event) => { if (event.target.value) addEffect(event.target.value as Effect['kind']); event.target.value = ''; }}><option value="">種類を選択</option>{EFFECTS_BY_CATEGORY[addCategory].map((kind) => <option key={kind} value={kind}>{titleFor(kind)}</option>)}</select></label><button type="button" className="danger-button" disabled={!selectedEffect} onClick={deleteEffect}>エフェクトを削除</button></div>
             <div className="global-gradient-panel"><h3>共通カラー</h3><p>すべてのエフェクトに使う色の変化を設定します。</p>{(['startColor', 'middleColor', 'endColor'] as const).map((key) => <label className="field" key={key}>{key === 'startColor' ? '開始色' : key === 'middleColor' ? '中間色' : '終了色'}<input aria-label={`共通カラー ${key}`} type="color" value={(blueprint.globalGradient ?? DEFAULT_GLOBAL_GRADIENT)[key]} onChange={(event) => updateGlobalGradient(key, event.target.value)} /></label>)}<label className="field">色の向き<input aria-label="共通カラーの向き" type="number" min={0} max={360} value={(blueprint.globalGradient ?? DEFAULT_GLOBAL_GRADIENT).angleDeg} onChange={(event) => updateGlobalGradient('angleDeg', Number(event.target.value))} /></label></div>
-            {variant === 'app' && <label className="field kick-gate-mode">Kick Detection Gate Mode<select aria-label="Kick Detection Gate Mode" value={kickGateMode} disabled={audioAnalysisBusy} onChange={(event) => setKickGateMode(event.target.value as KickGateMode)}><option value="off">Off</option><option value="soft">Soft</option><option value="middle">Middle</option><option value="hard">Hard</option></select><small>Kick検出の感度を設定します。変更は次回の音声解析時に反映されます。</small></label>}
+            {variant === 'app' && <label className="field kick-gate-mode">キック音の検出感度<select aria-label="キック音の検出感度" value={kickGateMode} disabled={audioAnalysisBusy} onChange={(event) => setKickGateMode(event.target.value as KickGateMode)}><option value="off">オフ</option><option value="soft">低め</option><option value="middle">標準</option><option value="hard">高め</option></select><small>キック音を検出する感度です。変更は次回の解析時に反映されます。</small></label>}
             <div className="effect-editor">
               <div className="effect-list" aria-label="エフェクト一覧">{blueprint.effects.map((effect) => <button key={effect.id} aria-pressed={selectedEffectId === effect.id} className={selectedEffectId === effect.id ? 'selected' : ''} onClick={() => { setRegionEditMode(false); setSelectedImageLayerId(null); setSelectedEffectId(effect.id); }}><span className="swatch" style={{ background: effect.color }} />{titleFor(effect.kind)}<small>{blueprint.regions.find((region) => region.id === effect.regionId)?.name ? regionDisplayName(blueprint.regions.find((region) => region.id === effect.regionId)!.name) : '範囲なし'}</small></button>)}</div>
               {selectedEffect ? <div className="effect-fields">
@@ -1673,7 +1671,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
                   ? <label className="field">表示条件<select aria-label="表示条件" value="triggered" disabled><option value="triggered">音に反応</option></select></label>
                   : <label className="field">表示条件<select aria-label="表示条件" value={selectedEffect.visibilityMode ?? 'triggered'} onChange={(event) => updateEffect('visibilityMode', event.target.value)}><option value="triggered" disabled={selectedEffect.audioReactive === false}>音に反応</option><option value="always">常に表示</option></select></label>}
                 {selectedEffect.kind === 'particles'
-                  ? <label className="field">Audio Reactive<select aria-label="Audio Reactive" value="true" disabled><option value="true">オン</option></select></label>
+                  ? <label className="field">音に反応<select aria-label="音に反応" value="true" disabled><option value="true">オン</option></select></label>
                   : <label className="field">Audio Reactive<select aria-label="Audio Reactive" value={selectedEffect.audioReactive === false ? 'false' : 'true'} onChange={(event) => updateEffect('audioReactive', event.target.value === 'true')}><option value="true">オン</option><option value="false">オフ（常に表示）</option></select></label>}
                 <label className="field">適用範囲<select aria-label="適用範囲" value={selectedEffect.regionId} onChange={(event) => updateEffect('regionId', event.target.value)}>{blueprint.regions.map((region) => <option key={region.id} value={region.id}>{regionDisplayName(region.name)}</option>)}</select></label>
                 <details className="advanced-settings" key={`${selectedEffectId}:${selectedEffect.kind}`}>
@@ -1699,7 +1697,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
                 {selectedEffect.kind === 'shockwave' && <>{inputNumber('Center X', 'centerX', selectedEffect.centerX, 0, 1)}{inputNumber('Center Y', 'centerY', selectedEffect.centerY, 0, 1)}{inputNumber('Maximum radius', 'maxRadius', selectedEffect.maxRadius, 0.05, 0.5)}{inputNumber('Lifetime ms', 'lifetimeMs', selectedEffect.lifetimeMs, 100, 5000, 50)}{inputNumber('Line width', 'lineWidth', selectedEffect.lineWidth, 0.003, 0.05, 0.001)}{inputNumber('Glow intensity', 'glowIntensity', selectedEffect.glowIntensity ?? 0, 0, 2)}{inputNumber('Opacity boost', 'opacityBoost', selectedEffect.opacityBoost ?? 1, 0.5, 2)}</>}
                 {selectedEffect.kind === 'oscilloscope-line' && <><label className="field">向き<select aria-label="波形の向き" value={selectedEffect.orientation} onChange={(event) => updateEffect('orientation', event.target.value)}><option value="horizontal">横向きの波形</option><option value="radial">円形の波形</option></select></label>{inputNumber('Line width', 'lineWidth', selectedEffect.lineWidth, 0.001, 0.05, 0.001)}{inputNumber('Sample count', 'sampleCount', selectedEffect.sampleCount, 32, 512, 1)}{inputNumber('Amplitude scale', 'amplitudeScale', selectedEffect.amplitudeScale, 0.1, 1)}{inputNumber('Glow intensity', 'glowIntensity', selectedEffect.glowIntensity, 0, 2)}<p>楽曲の低音の強さをもとに波形を描きます。元の音声波形そのものではありません。</p></>}
                 </div></details>
-                {selectedBinding && <div className="binding-fields"><h3>Audio Reactive</h3><label className="field">Audio Source<select aria-label="Audio Source" value={selectedBinding.source} onChange={(event) => updateBinding('source', event.target.value)}>{(['bass.envelope', 'drums.energy', 'vocals.envelope', 'other.envelope', 'music.energy', 'kick.events', 'snare.events'] as const).map((Source) => <option key={Source} value={Source}>{sourceLabels[Source]}{sourceIsAvailable(Source, timeline, selectedEffect) ? '' : '（利用不可）'}</option>)}</select></label>{!sourceIsAvailable(selectedBinding.source, timeline, selectedEffect) && <p role="status">{selectedEffect.kind === 'spectrum-bars' || selectedEffect.kind === 'spectrum-line' ? '周波数データがないため、このエフェクトは停止中です。' : selectedEffect.kind.startsWith('waveform-') ? selectedEffect.visibilityMode === 'always' ? '実際の波形データがないため、基準線・輪郭のみ表示します。代用の波形は生成しません。' : '実際の波形データがないため、このエフェクトは停止中です。' : selectedEffect.audioReactive === false ? '音への反応がオフのため、選んだ音源には反応しません。' : selectedEffect.visibilityMode === 'always' ? `${sourceLabels[selectedBinding.source]}のデータがないため、基本形状のみ表示します。` : `${sourceLabels[selectedBinding.source]}のデータがないため、このエフェクトは停止中です。`}</p>}{bindingNumber('Strength', 'strength', selectedBinding.strength, 0, 1)}{bindingNumber('Threshold', 'threshold', selectedBinding.threshold, 0, 1)}{bindingNumber('Attack ms', 'attackMs', selectedBinding.attackMs, 0, 5000, 10)}{bindingNumber('Release ms', 'releaseMs', selectedBinding.releaseMs, 0, 10000, 10)}</div>}
+                {selectedBinding && <div className="binding-fields"><h3>音への反応</h3><label className="field">反応させる音<select aria-label="反応させる音" value={selectedBinding.source} onChange={(event) => updateBinding('source', event.target.value)}>{(['bass.envelope', 'drums.energy', 'vocals.envelope', 'other.envelope', 'music.energy', 'kick.events', 'snare.events'] as const).map((Source) => <option key={Source} value={Source}>{sourceLabels[Source]}{sourceIsAvailable(Source, timeline, selectedEffect) ? '' : '（利用不可）'}</option>)}</select></label>{!sourceIsAvailable(selectedBinding.source, timeline, selectedEffect) && <p role="status">{selectedEffect.kind === 'spectrum-bars' || selectedEffect.kind === 'spectrum-line' ? '周波数データがないため、このエフェクトは停止中です。' : selectedEffect.kind.startsWith('waveform-') ? selectedEffect.visibilityMode === 'always' ? '実際の波形データがないため、基準線・輪郭のみ表示します。代用の波形は生成しません。' : '実際の波形データがないため、このエフェクトは停止中です。' : selectedEffect.audioReactive === false ? '音への反応がオフのため、選んだ音源には反応しません。' : selectedEffect.visibilityMode === 'always' ? `${sourceLabels[selectedBinding.source]}のデータがないため、基本形状のみ表示します。` : `${sourceLabels[selectedBinding.source]}のデータがないため、このエフェクトは停止中です。`}</p>}{bindingNumber('Strength', 'strength', selectedBinding.strength, 0, 1)}{bindingNumber('Threshold', 'threshold', selectedBinding.threshold, 0, 1)}{bindingNumber('Attack ms', 'attackMs', selectedBinding.attackMs, 0, 5000, 10)}{bindingNumber('Release ms', 'releaseMs', selectedBinding.releaseMs, 0, 10000, 10)}</div>}
               </div> : <div className="empty-selection">エフェクトを選ぶか追加すると、設定を編集できます。</div>}
             </div>
             </div>
