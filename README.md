@@ -52,7 +52,7 @@
 flowchart LR
   subgraph Client[Browser]
     UI[React Editor / Timeline]
-    Render[Canvas Renderer\nCanvas 2D + WebGL2 Ink]
+    Render[Canvas Renderer<br/>Canvas 2D + WebGL2 Ink]
     Export[Preview / WebM export]
     UI --> Render --> Export
   end
@@ -61,13 +61,13 @@ flowchart LR
     API[Go API]
     Worker[Go analysis Worker]
     Py[Python Island]
-    SC[SCNet standard\nCPU]
+    SC[SCNet standard<br/>CPU]
     DB[(PostgreSQL / Supabase)]
     Store[(Private Supabase Storage)]
-    API --> Worker
     Worker --> Py --> SC
     API --> DB
     Worker --> DB
+    DB -. durable job queue .-> Worker
     API --> Store
     Worker --> Store
   end
