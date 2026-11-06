@@ -150,7 +150,7 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの分類"]')?.value).toBe('Ambient / Atmospheric');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの種類"]')?.value).toBe('ink-diffusion');
     expect(host.querySelector<HTMLInputElement>('[aria-label="エフェクトの色"]')?.value).toBe('#8b5cf6');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('music.energy');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('music.energy');
     expect(host.querySelector<HTMLInputElement>('[aria-label="反応量"]')?.value).toBe('0.9');
     expect(host.querySelector<HTMLInputElement>('[aria-label="しきい値"]')?.value).toBe('0.1');
     expect(host.querySelector<HTMLInputElement>('[aria-label="Attack（ms）"]')?.value).toBe('60');
@@ -185,11 +185,11 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector('[aria-label="エフェクトの色"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="不透明度"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="表示条件"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="Audio Reactive"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="音に反応"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="適用範囲"]')).not.toBeNull();
-    expect(host.querySelector('[aria-label="Audio Source"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="反応させる音"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="反応量"]')).not.toBeNull();
-    expect([...host.querySelectorAll<HTMLSelectElement>('[aria-label="Audio Source"] option')].map((option) => option.textContent?.replace('（利用不可）', ''))).toEqual(['Bass', 'Drums', 'Vocals', 'Other', 'Song', 'Kick', 'Snare（推定）']);
+    expect([...host.querySelectorAll<HTMLSelectElement>('[aria-label="反応させる音"] option')].map((option) => option.textContent?.replace('（利用不可）', ''))).toEqual(['Bass', 'Drums', 'Vocals', 'Other', 'Song', 'Kick', 'Snare（推定）']);
     expect(host.textContent).toContain('Attack（ms）');
     expect(host.textContent).toContain('Release（ms）');
     expect(host.querySelector('[aria-label="バーの幅"]')?.closest('details')?.open).toBe(false);
@@ -433,8 +433,8 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector<HTMLInputElement>('[aria-label="層ごとの角度差（自動は0）"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="層ごとの半径差"]')).toBeNull();
     expect(host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]')?.value).toBe('always');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]')?.value).toBe('true');
-    act(() => change(host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]')!, 'false'));
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="音に反応"]')?.value).toBe('true');
+    act(() => change(host.querySelector<HTMLSelectElement>('[aria-label="音に反応"]')!, 'false'));
     expect(host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]')?.value).toBe('always');
     act(() => change(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの分類"]')!, 'Waveform'));
     const type = host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの種類"]')!;
@@ -449,7 +449,7 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector<HTMLInputElement>('[aria-label="中心 X"]')).not.toBeNull();
     expect(host.querySelector<HTMLInputElement>('[aria-label="振幅"]')).toBeNull();
     expect(host.querySelector<HTMLInputElement>('[aria-label="不透明度"]')?.value).toBe('0.4');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]')?.value).toBe('false');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="音に反応"]')?.value).toBe('false');
     act(() => root.unmount());
   });
 
@@ -461,7 +461,7 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの分類"]')?.value).toBe('Ambient / Atmospheric');
     expect(host.querySelector<HTMLInputElement>('[aria-label="広がる速さ"]')?.value).toBe('0.25');
     expect(host.querySelector<HTMLInputElement>('[aria-label="反応時間（秒）"]')?.value).toBe('3');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('music.energy');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('music.energy');
     act(() => root.unmount());
   });
 
@@ -471,10 +471,10 @@ describe('VisualEditor interactions', () => {
     const root = createRoot(host); act(() => root.render(<VisualEditor />));
     addEditorType(host, 'Ambient / Atmospheric', 'ink-flow');
     expect(host.querySelector<HTMLInputElement>('[aria-label="流れの強さ"]')?.value).toBe('0.95');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('music.energy');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('music.energy');
     addEditorType(host, 'Ambient / Atmospheric', 'color-mixing');
     expect(host.querySelector<HTMLInputElement>('[aria-label="雲の大きさ"]')?.value).toBe('0.9');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('music.energy');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('music.energy');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]')?.value).toBe('always');
     act(() => change(host.querySelector<HTMLSelectElement>('[aria-label="カラー設定"]')!, 'custom'));
     expect(host.querySelectorAll('[aria-label^="パレットの色 "]')).toHaveLength(3);
@@ -491,11 +491,11 @@ describe('VisualEditor interactions', () => {
     const root = createRoot(host); act(() => root.render(<VisualEditor />));
     addEditorType(host, 'Particles', 'particles');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]')?.value).toBe('triggered');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]')?.value).toBe('true');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="音に反応"]')?.value).toBe('true');
     addEditorType(host, 'Particles', 'particle-burst');
     selectEditorType(host, 'particles');
     const visibility = host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]')!;
-    const reactive = host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]')!;
+    const reactive = host.querySelector<HTMLSelectElement>('[aria-label="音に反応"]')!;
     expect(visibility.value).toBe('triggered');
     expect(visibility.disabled).toBe(true);
     expect([...visibility.options].map((option) => option.value)).toEqual(['triggered']);
@@ -516,13 +516,13 @@ describe('VisualEditor interactions', () => {
     act(() => { const details = host.querySelector<HTMLDetailsElement>('.advanced-settings'); if (details) details.open = true; });
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの分類"]')?.value).toBe('Impacts');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの種類"]')?.value).toBe('shockwave');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('kick.events');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('kick.events');
     expect(host.querySelector<HTMLInputElement>('[aria-label="しきい値"]')?.value).toBe('0');
     expect(host.querySelector<HTMLInputElement>('[aria-label="反応量"]')?.value).toBe('1');
     expect(host.querySelector<HTMLInputElement>('[aria-label="Attack（ms）"]')?.value).toBe('0');
     expect(host.querySelector<HTMLInputElement>('[aria-label="Release（ms）"]')?.value).toBe('260');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]')?.value).toBe('always');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]')?.value).toBe('true');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="音に反応"]')?.value).toBe('true');
     const gateMode = host.querySelector<HTMLSelectElement>('[aria-label="キック音の検出感度"]')!;
     expect(gateMode.value).toBe('middle');
     expect(gateMode.closest('.workflow-audio')).toBeNull();
@@ -530,12 +530,12 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector('.global-gradient-panel')?.compareDocumentPosition(gateMode)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(gateMode.compareDocumentPosition(host.querySelector('.effect-list')!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     act(() => change(gateMode, 'soft'));
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Kick Detection Gate Mode"]')?.value).toBe('soft');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="キック音の検出感度"]')?.value).toBe('soft');
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/api/v1/audio/analyze'))).toBe(false);
     selectEditorType(host, 'wave-ring');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Kick Detection Gate Mode"]')?.value).toBe('soft');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="キック音の検出感度"]')?.value).toBe('soft');
     act(() => [...host.querySelectorAll<HTMLButtonElement>('.effect-add-controls button')].find((button) => button.textContent?.trim() === 'エフェクトを削除')!.click());
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Kick Detection Gate Mode"]')?.value).toBe('soft');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="キック音の検出感度"]')?.value).toBe('soft');
     act(() => root.unmount());
   });
 
@@ -565,7 +565,7 @@ describe('VisualEditor interactions', () => {
     for (const kind of Object.values(EFFECTS_BY_CATEGORY).flat()) {
       selectEditorType(host, kind);
       expect(host.querySelector<HTMLSelectElement>('[aria-label="表示条件"]'), kind).not.toBeNull();
-      expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Reactive"]'), kind).not.toBeNull();
+      expect(host.querySelector<HTMLSelectElement>('[aria-label="音に反応"]'), kind).not.toBeNull();
     }
     act(() => root.unmount());
   });
@@ -585,7 +585,7 @@ describe('VisualEditor interactions', () => {
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 10)); });
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの分類"]')?.value).toBe('Circular / Radial');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの種類"]')?.value).toBe('wave-ring');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('music.energy');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('music.energy');
     expect(host.querySelector<HTMLInputElement>('[aria-label="エフェクトの色"]')?.value).toBe('#ddbbff');
     act(() => root.unmount());
   });
@@ -632,24 +632,24 @@ describe('VisualEditor interactions', () => {
     const root = createRoot(host); act(() => root.render(<VisualEditor />));
     const region = host.querySelector<HTMLSelectElement>('[aria-label="適用範囲"]')!;
     expect(region.value).toBe('region-stage');
-    expect(host.querySelectorAll('[aria-label="Audio Source"] option')).toHaveLength(7);
+    expect(host.querySelectorAll('[aria-label="反応させる音"] option')).toHaveLength(7);
     selectEditorType(host, 'particle-burst');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの種類"]')?.value).toBe('particle-burst');
     expect(host.querySelector('[aria-label="発生位置 X"]')).not.toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('music.energy');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('music.energy');
     const strength = host.querySelector<HTMLInputElement>('[aria-label="反応量"]')!;
     act(() => change(strength, '0.42'));
     selectEditorType(host, 'particle-trail');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの種類"]')?.value).toBe('particle-trail');
     expect(host.querySelector('[aria-label="サンプル数"]')).not.toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('music.energy');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('music.energy');
     expect(host.querySelector<HTMLInputElement>('[aria-label="反応量"]')?.value).toBe('0.42');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="適用範囲"]')?.value).toBe('region-stage');
     const expectedSource = 'music.energy';
     for (const kind of ['pulse-scale', 'glow-brightness', 'rotation-movement', 'particles', 'waveform-bars', 'radial-bars', 'wave-ring', 'particle-burst', 'particle-trail', 'ripple', 'shockwave', 'oscilloscope-line']) {
       selectEditorType(host, kind as import('./editor-model').Effect['kind']);
       expect(host.querySelector<HTMLSelectElement>('[aria-label="エフェクトの種類"]')?.value).toBe(kind);
-      expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe(expectedSource);
+      expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe(expectedSource);
       expect(host.querySelector<HTMLSelectElement>('[aria-label="適用範囲"]')?.value).toBe('region-stage');
       expect(host.querySelector<HTMLInputElement>('[aria-label="反応量"]')?.value).toBe('0.42');
     }
@@ -677,7 +677,7 @@ describe('VisualEditor interactions', () => {
     const burstRow = [...host.querySelectorAll<HTMLButtonElement>('.effect-list button')].find((item) => item.textContent?.includes('粒子バースト'))!;
     act(() => burstRow.click());
     act(() => { const details = host.querySelector<HTMLDetailsElement>('.advanced-settings'); if (details) details.open = true; });
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('kick.events');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('kick.events');
     expect(host.querySelector<HTMLInputElement>('[aria-label="しきい値"]')?.value).toBe('0');
     expect(host.querySelector<HTMLInputElement>('[aria-label="反応量"]')?.value).toBe('1');
     expect(host.querySelector<HTMLInputElement>('[aria-label="Attack（ms）"]')?.value).toBe('60');
@@ -867,7 +867,7 @@ describe('VisualEditor interactions', () => {
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
     await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); });
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();
-    const gateMode = host.querySelector<HTMLSelectElement>('[aria-label="Kick Detection Gate Mode"]')!;
+    const gateMode = host.querySelector<HTMLSelectElement>('[aria-label="キック音の検出感度"]')!;
     expect(gateMode.value).toBe('middle');
     act(() => change(gateMode, 'soft'));
     const statusRows = [...host.querySelectorAll<HTMLElement>('.workflow-step')];
@@ -1054,7 +1054,7 @@ describe('VisualEditor interactions', () => {
       exportButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
-    expect(host.textContent).toContain('encoder fixture failure');
+    expect(host.textContent).toContain('動画を作成できませんでした。');
     expect(exportButton.disabled).toBe(false);
     await act(async () => {
       exportButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1105,7 +1105,7 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector('[aria-label="横方向の広がり"]')).not.toBeNull();
     expect(host.querySelector('[aria-label="音による速度変化"]')).not.toBeNull();
 
-    const source = host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]');
+    const source = host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]');
     expect(source?.value).toBe('bass.envelope');
     act(() => change(source!, 'drums.energy'));
     expect(source?.value).toBe('drums.energy');
@@ -1126,24 +1126,24 @@ describe('VisualEditor interactions', () => {
     expect(host.querySelector('[aria-label="渦の回転数"]')).not.toBeNull();
     expect(host.querySelector<HTMLInputElement>('[aria-label="最大粒子数"]')?.max).toBe('64');
     expect(host.querySelector('[aria-label="音の影響"]')).not.toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('kick.events');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('kick.events');
     addEditorType(host, 'Particles', 'particle-trail');
     expect(host.textContent).toContain('粒子の軌跡');
     expect(host.querySelector('[aria-label="サンプル数"]')).not.toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('bass.envelope');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('bass.envelope');
     addEditorType(host, 'Impacts', 'ripple');
     expect(host.textContent).toContain('波紋');
     expect(host.querySelector('[aria-label="波の数"]')).not.toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('bass.envelope');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('bass.envelope');
     addEditorType(host, 'Impacts', 'shockwave');
     expect(host.textContent).toContain('衝撃波');
     expect(host.querySelector('[aria-label="最大半径"]')).not.toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('kick.events');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('kick.events');
     addEditorType(host, 'Waveform', 'oscilloscope-line');
     expect(host.textContent).toContain('オシロスコープ線');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="波形の向き"]')?.value).toBe('horizontal');
     expect(host.textContent).toContain('元の音声波形そのものではありません');
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Audio Source"]')?.value).toBe('bass.envelope');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="反応させる音"]')?.value).toBe('bass.envelope');
 
     const seek = host.querySelector<HTMLInputElement>('[aria-label="再生位置の調整"]');
     expect(seek).not.toBeNull();
