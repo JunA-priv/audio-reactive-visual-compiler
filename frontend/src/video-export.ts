@@ -24,13 +24,13 @@ function exportError(message: string): Error { return new Error(message); }
 
 export function selectWebMMimeType(withAudio: boolean): string {
   if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
-    throw exportError('このブラウザーはMediaRecorderによるWebM出力に対応していません。');
+    throw exportError('このブラウザーでは動画を作成できません。別のブラウザーをお試しください。');
   }
   const candidates = withAudio
     ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm;codecs=vp8,vorbis', 'video/webm']
     : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
   const supported = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
-  if (!supported) throw exportError('このブラウザーに対応するWebM codecがありません。VP8/VP9とOpusのMediaRecorder対応を確認してください。');
+  if (!supported) throw exportError('このブラウザーでは動画を作成できません。別のブラウザーをお試しください。');
   return supported;
 }
 
@@ -40,12 +40,12 @@ const mp4MimeTypes = (withAudio: boolean) => withAudio
 
 export function selectMP4MimeType(withAudio: boolean): string {
   if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
-    throw exportError('このブラウザーはMP4（H.264）のMediaRecorder出力に対応していません。');
+    throw exportError('このブラウザーはMP4に対応していません。WebMを選択してください。');
   }
   const supported = mp4MimeTypes(withAudio).find((candidate) => MediaRecorder.isTypeSupported(candidate));
   if (!supported) throw exportError(withAudio
-    ? 'このブラウザーはH.264 / AACのMP4出力に対応していません。WebMを選択してください。'
-    : 'このブラウザーはH.264のMP4出力に対応していません。WebMを選択してください。');
+    ? 'このブラウザーは音声付きMP4に対応していません。WebMを選択してください。'
+    : 'このブラウザーはMP4に対応していません。WebMを選択してください。');
   return supported;
 }
 
