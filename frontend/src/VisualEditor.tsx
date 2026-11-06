@@ -645,8 +645,11 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
   function seekPreview(value: number) {
     const nextTimeMs = Math.max(0, Math.min(value, timeline.durationMs));
     if (isDemo) {
+      const audio = demoAudioRef.current;
+      audio?.pause();
+      setPlaying(false);
       setTimeMs(nextTimeMs);
-      if (demoAudioRef.current) demoAudioRef.current.currentTime = nextTimeMs / 1000;
+      if (audio) audio.currentTime = nextTimeMs / 1000;
       return;
     }
     setPlaying(false);
