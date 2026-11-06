@@ -332,7 +332,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
     setAudioAnalysisStatus('保存された解析ジョブを復元しています…');
     void restoreAudioAnalysisJob(authSession.accessToken, controller.signal, (job: AudioJobStatus) => {
       if (job.state === 'queued') setAudioAnalysisStatus(job.queuePosition ? `解析待ち：前に${Math.max(0, job.queuePosition - 1)}件あります。` : '解析待ちです。');
-      else if (job.state === 'running') setAudioAnalysisStatus('解析中...');
+      else if (job.state === 'running') setAudioAnalysisStatus('音源を解析しています...');
     }).then((result) => {
       if (!result || controller.signal.aborted || sequence !== audioDecodeSequence.current) return;
       setTimeline(result.featureTimeline);
@@ -1219,7 +1219,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
       if (controller.signal.aborted) throw new DOMException('analysis canceled', 'AbortError');
       const result = await analyzeAudioClip(clip.file, session.accessToken, controller.signal, kickGateMode, (job) => {
         if (job.state === 'queued') setAudioAnalysisStatus(job.queuePosition ? `解析待ち：前に${Math.max(0, job.queuePosition - 1)}件あります。` : '解析待ちです。');
-        else if (job.state === 'running') setAudioAnalysisStatus('SCNetで音源を解析しています…');
+        else if (job.state === 'running') setAudioAnalysisStatus('音源を解析しています...');
       });
       if (Math.abs(result.durationMs - clip.durationMs) > 1.1 || Math.abs(result.frameCount - clip.frameCount) > 45) throw new Error('解析結果の長さが切り出した音声と一致しません。');
       setPlaying(false);
@@ -1511,7 +1511,7 @@ export function VisualEditor({ timeline: initialTimeline = demoTimeline, variant
             {variant === 'app' && musicSummary && <p className="workflow-complete">解析済み範囲: {(musicSummary.durationMs / 1000).toFixed(2)} 秒。この範囲をプレビューと書き出しに使います。</p>}
             {variant === 'app' && audioAnalysisStatus && !rangeSelectionOpen && <p role="status">{audioAnalysisStatus}</p>}
             {audioError && <p role="alert" className="field-error">{audioError}</p>}
-            <div className="audio-generation-action">
+            <div className="audio-generation-action" hidden={variant === 'app'}>
               <h3>{variant === 'app' ? '解析結果からエフェクトを生成' : 'サンプル設定'}</h3>
               <p>{variant === 'app' ? '解析した音源の特徴をもとに、編集用のエフェクト設定を作成します。' : 'サンプル設定を読み込んで編集できます。'}</p>
               <button className="primary-button" onClick={() => void loadBlueprintFixture()} disabled={apiLoading || (variant === 'app' && (!musicSummary || rangeSelectionOpen || audioAnalysisBusy))}>{apiLoading ? '読み込み中…' : variant === 'app' ? 'エフェクトを生成' : 'サンプル設定を読み込む'}</button>

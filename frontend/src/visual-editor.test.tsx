@@ -1021,7 +1021,7 @@ describe('VisualEditor interactions', () => {
     const projectInput = host.querySelector<HTMLInputElement>('[aria-label="プロジェクトファイルを選択"]')!;
     Object.defineProperty(projectInput, 'files', { configurable: true, value: [new File([projectBlob], 'analyzed.arvproj', { type: 'application/json' })] });
     await act(async () => { projectInput.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => window.setTimeout(resolve, 0)); });
-    expect(host.textContent).toContain('解析結果からエフェクトを生成');
+    expect(host.querySelector('.audio-generation-action')?.hasAttribute('hidden')).toBe(true);
     expect(host.textContent).toContain('プロジェクトを読み込みました。');
     expect(host.querySelector<HTMLSelectElement>('[aria-label="音声"]')?.value).toBe('with-audio');
     const playback = host.querySelector<HTMLAudioElement>('[aria-label="編集プレビュー音声"]')!;
