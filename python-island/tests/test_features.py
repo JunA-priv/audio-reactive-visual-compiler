@@ -8,6 +8,7 @@ from python_island.features import (
     KICK_GATE_MODES,
     KICK_GATE_THRESHOLDS,
     _frequency_spectrum,
+    _waveform_peaks,
     detect_kicks,
     detect_kicks_legacy,
     detect_snares,
@@ -244,6 +245,14 @@ def test_silent_and_boundary_features_are_finite_and_duration_bounded():
     assert all(point["timeMs"] <= 10 for key in ("bassEnvelope", "musicEnergy") for point in result[key])
     assert len(result["waveformPeaks"]["music"]) == 1
     assert result["waveformPeaks"]["music"] == [{"min": 0.0, "max": 0.0}]
+
+
+def test_waveform_peaks_clamp_overrange_separation_stems():
+    stem = np.zeros((882, 2), dtype=np.float64)
+    stem[56, 0] = 1.4
+    stem[56, 1] = -1.2
+
+    assert _waveform_peaks(stem) == [{"min": -1.0, "max": 1.0}]
 
 
 def test_invalid_stem_shape_or_non_finite_input_is_rejected():

@@ -123,8 +123,12 @@ def _points(times: np.ndarray, values: np.ndarray, duration_ms: int) -> list[Fea
 
 
 def _waveform_peaks(samples: np.ndarray) -> list[WaveformPeak]:
-    """Signed min/max per fixed 20ms window, flattened across channels."""
+    """Signed full-scale min/max per fixed 20ms window, flattened across channels."""
     valid = _validate_stem(samples, "waveform")
+    # Separation stems can exceed full scale even though the corresponding WAV
+    # output is clipped to PCM range. Keep Timeline peaks inside its [-1, 1]
+    # contract using the same clipping semantics.
+    valid = np.clip(valid, -1.0, 1.0)
     result: list[WaveformPeak] = []
     for start in range(0, len(valid), WAVEFORM_PEAK_SAMPLES):
         window = valid[start : start + WAVEFORM_PEAK_SAMPLES]
