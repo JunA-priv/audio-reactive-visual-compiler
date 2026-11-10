@@ -754,6 +754,37 @@ func TestAnalyzeRejectsMalformedPythonOutput(t *testing.T) {
 	}
 }
 
+func TestAnalyzeLogsSafeOutputValidationReason(t *testing.T) {
+	var logs bytes.Buffer
+	runner := &outputRunner{timeline: []byte(validTimeline), summary: []byte(validSummary), metadata: []byte(`{"metadataVersion":2}`)}
+	h, err := NewHandler(Config{
+		TempDirectory: t.TempDir(),
+		Prober:        fakeProber{info: validInfo()},
+		Runner:        runner,
+		Logger:        slog.New(slog.NewTextHandler(&logs, nil)),
+		Admission:     &fakeAdmission{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := echo.New()
+	identity := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			c.SetRequest(c.Request().WithContext(authn.ContextWithPrincipal(c.Request().Context(), authn.Principal{Subject: "00000000-0000-4000-8000-000000000001"})))
+			return next(c)
+		}
+	}
+	h.Register(e, identity)
+	contentType, body := makeMultipart(t, 100)
+	response := doRequest(e, contentType, body, "Bearer valid")
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("invalid output status=%d", response.Code)
+	}
+	if !strings.Contains(logs.String(), "validation_reason=analysis_metadata_version_invalid") || !strings.Contains(logs.String(), "validation_detail=\"invalid analysis metadata\"") {
+		t.Fatalf("safe validation details missing from log: %s", logs.String())
+	}
+}
+
 type outputRunner struct{ timeline, summary, metadata []byte }
 
 func (r *outputRunner) Analyze(_ context.Context, _, output, _ string) error {

@@ -99,6 +99,15 @@ def test_run_analysis_keeps_frontend_required_fields_and_refuses_overwrite(
         raise AssertionError("existing output should not be overwritten")
 
 
+def test_duration_rounds_up_for_partial_final_feature_frame():
+    from python_island.pipeline import _duration_ms
+
+    exact_boundary_samples = 5 * 882
+    assert _duration_ms(exact_boundary_samples) == 100
+    assert _duration_ms(exact_boundary_samples + 1) == 101
+    assert (exact_boundary_samples + 1 + 881) // 882 == (101 + 19) // 20
+
+
 def test_cli_returns_nonzero_for_analysis_error(monkeypatch, capsys):
     from python_island.errors import AnalysisError
 
