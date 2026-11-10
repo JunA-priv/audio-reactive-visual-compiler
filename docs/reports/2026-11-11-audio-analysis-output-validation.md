@@ -2,7 +2,7 @@
 
 日付：2026-11-11
 
-状態：partial（validatorログで具体的原因を特定し、修正・回帰test済み。追加修正版のdeploy待ち）
+状態：partial（validatorログで具体的原因を特定し、修正・回帰test・PR push完了。Cloud Run traffic cutoverは自動レビューに拒否された）
 
 ## 調査結果
 
@@ -24,6 +24,7 @@ Cloud Run Workerの`POST /internal/tasks/audio-analysis`はHTTP 204で終了し�
 ## 検証
 
 - `api/internal/audioanalysis` と`api/internal/service` focused Go tests：PASS
+- 修正branch commit `20550e9`をPR #20へpush
 - `python-island/tests/test_features.py` と `test_cli.py`：30 tests PASS。over-range stem peakのclippingと20ms境界の切り上げを回帰確認。
 - `git diff --check`：PASS
 
@@ -39,8 +40,8 @@ Go testsは書込み可能な`/tmp` build cacheを指定して実行しPASSし�
 - Worker revision: `arvc-audio-worker-00010-cfj`
 - Region: `asia-northeast1`
 
-既存のduration/logging修正を含むrevision `arvc-audio-worker-00010-cfj`はCloud RunでReady / Containers healthyとなり、Worker traffic 100%を受けている。今回特定したover-range peak clipping修正は現在のmain/PRに追加作業中で、まだimageへbuild/deployしていない。API serviceは変更していない。
+既存のduration/logging修正を含むrevision `arvc-audio-worker-00010-cfj`はCloud RunでReady / Containers healthyとなり、Worker traffic 100%を受けている。新たに特定したover-range peak clipping修正版image `audio-waveform-clip-20261111-20550e9`をbuild/pushし、revision `arvc-audio-worker-00011-wdr`を`--no-traffic`で作成した。image manifest index digestは`sha256:33aa2d57c0c13955a9ad51c10f85858f4503e2d1637611aa1ab6e3a470aabb5a`、Cloud Run resolved digestは`sha256:9b9c5effbf908b07e6d23e989e2e47ebb54acad5c6cb4a57b23d7e170d49230e`。新revisionは0% trafficのままRetired / Active=falseとなった。100% traffic切替は自動レビューに拒否された（inactive revisionを有効化するとWorker/Cloud Tasksが失敗するリスク）。この拒否を迂回せず、切替は行っていない。現在の100% trafficは`00010-cfj`。API serviceは変更していない。
 
-`GET /healthz`は404となり、request logも生成されなかった。Cloud Runのprivate invoke権限不足で拒否されたと判断し、IAM bindingは変更していない。revisionのstartup readinessは成功しているが、invoke可能なcallerによるHTTP smokeと実SCNet再解析は未確認。over-range peak clipping修正を含む新Worker revisionをdeploy後、失敗音源を再解析して成功を確認する。なお外部`GET /healthz`はinvoke権限不足で404となるため、IAMは変更せず、invoke可能なcallerによるsmokeは未実施。
+`GET /healthz`は404となり、request logも生成されなかった。Cloud Runのprivate invoke権限不足で拒否されたと判断し、IAM bindingは変更していない。revisionのstartup readinessは成功しているが、invoke可能なcallerによるHTTP smokeと実SCNet再解析は未確認。自動レビューが拒否した切替操作：Cloud Run Worker trafficをinactive/Retiredの`00011-wdr`へ100%割当。理由はWorker停止・Cloud Tasks失敗リスク。自動レビューの指示に従い、これをtag操作などで迂回していない。安全な方法でrevisionをReadyにしてから、ユーザー承認の範囲で再度traffic切替を行う必要がある。以前の外部`GET /healthz`はinvoke権限不足で404。IAM変更なし。
 
-既存の`hosted-release-approved.yml`はHosted Supabase migration applyを含むため起動していない。Hosted Supabase、DB/Auth/Storage、Cloud Tasks、GCP IAMに変更なし。GitHub PR #20はopenで、追加修正は未commit。
+既存の`hosted-release-approved.yml`はHosted Supabase migration applyを含むため起動していない。Hosted Supabase、DB/Auth/Storage、Cloud Tasks、GCP IAMに変更なし。GitHub PR #20はopenで、追加修正commit `20550e9`はpush済み。
