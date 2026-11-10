@@ -2,7 +2,7 @@
 
 日付：2026-11-11
 
-状態：partial（validatorログで具体的原因を特定し、修正・回帰test・PR push完了。Cloud Run traffic cutoverは自動レビューに拒否された）
+状態：partial（具体的原因を修正しPR #20 merge、Worker 100%切替完了。失敗音源の再解析は未確認）
 
 ## 調査結果
 
@@ -32,16 +32,17 @@ Go testsは書込み可能な`/tmp` build cacheを指定して実行しPASSし�
 
 ## デプロイ結果と残作業
 
-固定SCNet checkpointは`python-island/tools/scnet-poc/external/checkpoints/checkpoint.th`にあり、42,434,545 bytes / SHA-256一致を確認した。Docker Buildxで`linux/amd64`イメージを構築し、private Artifact Registryへ次のtagでpushした。
+固定SCNet checkpointは`python-island/tools/scnet-poc/external/checkpoints/checkpoint.th`にあり、42,434,545 bytes / SHA-256一致を確認した。Docker Buildxで`linux/amd64`イメージを構築し、private Artifact Registryへpushした。
 
-- Image tag: `audio-validation-20261111-6af7d86`
-- Image index digest: `sha256:f80fda76d8331fe43904a444d459b1f98ac416bd613a0d78cea53192a6ec755b`
-- Cloud Run resolved image digest: `sha256:263921feac100f5495af6cf44caf8e8344d6719736cc44102db5980060988a06`
-- Worker revision: `arvc-audio-worker-00010-cfj`
+- Image tag: `audio-waveform-clip-20261111-20550e9`
+- Image index digest: `sha256:33aa2d57c0c13955a9ad51c10f85858f4503e2d1637611aa1ab6e3a470aabb5a`
+- Cloud Run resolved image digest: `sha256:9b9c5effbf908b07e6d23e989e2e47ebb54acad5c6cb4a57b23d7e170d49230e`
+- Worker revision: `arvc-audio-worker-00017-wot`
 - Region: `asia-northeast1`
+- PR #20 merge commit: `5fbb2a24a3d365377e7d13bb0843a6c6354687c3`
 
-既存のduration/logging修正を含むrevision `arvc-audio-worker-00010-cfj`はCloud RunでReady / Containers healthyとなり、Worker traffic 100%を受けている。新たに特定したover-range peak clipping修正版image `audio-waveform-clip-20261111-20550e9`をbuild/pushし、revision `arvc-audio-worker-00011-wdr`を`--no-traffic`で作成した。image manifest index digestは`sha256:33aa2d57c0c13955a9ad51c10f85858f4503e2d1637611aa1ab6e3a470aabb5a`、Cloud Run resolved digestは`sha256:9b9c5effbf908b07e6d23e989e2e47ebb54acad5c6cb4a57b23d7e170d49230e`。新revisionは0% trafficのままRetired / Active=falseとなった。100% traffic切替は自動レビューに拒否された（inactive revisionを有効化するとWorker/Cloud Tasksが失敗するリスク）。この拒否を迂回せず、切替は行っていない。現在の100% trafficは`00010-cfj`。API serviceは変更していない。
+最初に作成したrevision `00011-wdr`は0% trafficでRetiredとなり、traffic切替を試みた際は自動レビューにより停止リスクを理由に拒否された。その後、ユーザーから明示的な切替依頼を受け、Retired revisionを直接有効化せず、同一image digestを新しいcanary revision `00017-wot`として配置した。Cloud RunでReady / ContainerHealthyを確認後、traffic 100%を`00017-wot`へ切り替えた。旧revision `00010-cfj`は0% traffic。`00017-wot`の切替後ERRORログは確認されていない。
 
-`GET /healthz`は404となり、request logも生成されなかった。Cloud Runのprivate invoke権限不足で拒否されたと判断し、IAM bindingは変更していない。revisionのstartup readinessは成功しているが、invoke可能なcallerによるHTTP smokeと実SCNet再解析は未確認。自動レビューが拒否した切替操作：Cloud Run Worker trafficをinactive/Retiredの`00011-wdr`へ100%割当。理由はWorker停止・Cloud Tasks失敗リスク。自動レビューの指示に従い、これをtag操作などで迂回していない。安全な方法でrevisionをReadyにしてから、ユーザー承認の範囲で再度traffic切替を行う必要がある。以前の外部`GET /healthz`はinvoke権限不足で404。IAM変更なし。
+前回の`GET /healthz`はinvoke権限不足で404となったため、IAMは変更していない。Container startup readinessは成功。Workerへ実タスクを再送せず、失敗音源の再解析もしていないため、次の確認はユーザーが同じ音源を再解析すること。新たに失敗する場合は`validation_reason`と`validation_detail`を確認する。
 
-既存の`hosted-release-approved.yml`はHosted Supabase migration applyを含むため起動していない。Hosted Supabase、DB/Auth/Storage、Cloud Tasks、GCP IAMに変更なし。GitHub PR #20はopenで、追加修正commit `20550e9`はpush済み。
+Hosted Supabase、DB/Auth/Storage、Cloud Tasks、GCP IAM、API serviceは変更していない。Githubへの更新はPR #20のmergeまで。
