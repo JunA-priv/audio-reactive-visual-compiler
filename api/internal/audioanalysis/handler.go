@@ -347,7 +347,9 @@ func (h *Handler) analyzeWithAdmission(c *echo.Context, admission audiobudget.St
 		if settleErr := settle(audiobudget.StateFailed, "invalid_output"); settleErr != nil || settlementFailed {
 			return settleErr
 		}
-		h.logger.WarnContext(r.Context(), "audio analysis output rejected", "classification", "invalid_analysis_output", "elapsed_ms", time.Since(analysisStarted).Milliseconds())
+		attrs := []any{"classification", "invalid_analysis_output", "elapsed_ms", time.Since(analysisStarted).Milliseconds()}
+		attrs = append(attrs, outputValidationLogAttrs(err)...)
+		h.logger.WarnContext(r.Context(), "audio analysis output rejected", attrs...)
 		return writeError(c, http.StatusBadGateway, "invalid_analysis_output", "audio analysis returned invalid data")
 	}
 	if settleErr := settle(audiobudget.StateSucceeded, ""); settleErr != nil || settlementFailed {
@@ -617,20 +619,42 @@ type validatedResult struct {
 	kickEvents     int
 }
 
+type outputValidationError struct {
+	reason string
+	err    error
+}
+
+func (e *outputValidationError) Error() string { return e.err.Error() }
+func (e *outputValidationError) Unwrap() error { return e.err }
+
+func invalidOutput(reason string, err error) error {
+	return &outputValidationError{reason: reason, err: err}
+}
+
+func outputValidationLogAttrs(err error) []any {
+	var validationErr *outputValidationError
+	if !errors.As(err, &validationErr) {
+		return []any{"validation_reason", "unknown", "validation_detail", "unclassified output validation error"}
+	}
+	// These details come only from fixed validation messages and field indexes;
+	// no source audio, generated JSON, or credentials are included.
+	return []any{"validation_reason", validationErr.reason, "validation_detail", validationErr.Error()}
+}
+
 func readAndValidateResult(outputDir string, inputDurationSeconds float64, inputBytes int64) (validatedResult, error) {
 	var result validatedResult
 	if err := readJSON(filepath.Join(outputDir, "feature-timeline.json"), maxTimelineJSON, &result.response.FeatureTimeline); err != nil {
-		return result, err
+		return result, invalidOutput("feature_timeline_file_invalid", err)
 	}
 	if err := readJSON(filepath.Join(outputDir, "music-summary.json"), maxSummaryJSON, &result.response.MusicSummary); err != nil {
-		return result, err
+		return result, invalidOutput("music_summary_file_invalid", err)
 	}
 	if err := readJSON(filepath.Join(outputDir, "analysis-metadata.json"), maxMetadataJSON, &result.response.AnalysisMetadata); err != nil {
-		return result, err
+		return result, invalidOutput("analysis_metadata_file_invalid", err)
 	}
 	summaryValue, timeline, _, err := service.ValidateInput(service.Request{MusicSummary: result.response.MusicSummary, FeatureTimeline: result.response.FeatureTimeline})
 	if err != nil {
-		return result, err
+		return result, invalidOutput("feature_contract_invalid", err)
 	}
 	var timelineMeta struct {
 		AnalysisVersion string `json:"analysisVersion"`
@@ -643,17 +667,17 @@ func readAndValidateResult(outputDir string, inputDurationSeconds float64, input
 		MetadataVersion int `json:"metadataVersion"`
 	}
 	if json.Unmarshal(result.response.FeatureTimeline, &timelineMeta) != nil || timelineMeta.AnalysisVersion == "" || timelineMeta.SampleRateHz != 44_100 {
-		return result, errors.New("invalid Feature Timeline metadata")
+		return result, invalidOutput("feature_timeline_metadata_invalid", errors.New("invalid Feature Timeline metadata"))
 	}
 	if json.Unmarshal(result.response.MusicSummary, &summary) != nil || json.Unmarshal(result.response.AnalysisMetadata, &metadata) != nil || metadata.MetadataVersion != 1 {
-		return result, errors.New("invalid analysis metadata")
+		return result, invalidOutput("analysis_metadata_version_invalid", errors.New("invalid analysis metadata"))
 	}
 	if (summaryValue.Analysis.Model != "scnet_standard" && summaryValue.Analysis.Model != "htdemucs") || summaryValue.Analysis.Device != "cpu" || summaryValue.SourceAudio.Format != "wav" || summaryValue.SourceAudio.Codec != "pcm_s16le" || summaryValue.SourceAudio.SampleRateHz != 44_100 || summaryValue.SourceAudio.Channels != 2 || summaryValue.SourceAudio.FileBytes != inputBytes {
-		return result, errors.New("unexpected analysis model or audio format")
+		return result, invalidOutput("analysis_provenance_mismatch", errors.New("unexpected analysis model or audio format"))
 	}
 	inputDurationMs := inputDurationSeconds * 1000
 	if summary.DurationMs < 1 || summary.DurationMs > 60_000 || mathAbs(float64(summary.DurationMs)-inputDurationMs) > 1.1 || float64(timeline.DurationMs) != float64(summary.DurationMs) {
-		return result, errors.New("analysis duration does not match clip")
+		return result, invalidOutput("analysis_duration_mismatch", errors.New("analysis duration does not match clip"))
 	}
 	result.durationMs = float64(timeline.DurationMs)
 	result.timelinePoints = len(timeline.BassEnvelope)

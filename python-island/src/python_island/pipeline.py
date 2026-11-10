@@ -30,6 +30,10 @@ def _json_bytes(value: object) -> bytes:
     return (json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
 
 
+def _duration_ms(sample_frames: int) -> int:
+    return (sample_frames * 1000 + 44_100 - 1) // 44_100
+
+
 def _write_stem_wav(path: Path, samples: np.ndarray) -> None:
     if samples.ndim != 2 or samples.shape[1] != 2 or samples.shape[0] == 0 or not np.isfinite(samples).all():
         raise AnalysisError(f"Stem must be finite, non-empty stereo PCM: {path.name}")
@@ -94,7 +98,10 @@ def run_analysis(
     decode_started = time.perf_counter()
     audio = decode_audio(source, input_info)
     decode_seconds = time.perf_counter() - decode_started
-    duration_ms = round(len(audio) * 1000 / 44_100)
+    # Keep duration from rounding below the decoded sample count. Waveform and
+    # spectrum features include a partial final 20ms frame, so nearest-ms
+    # rounding can make their frame count disagree with the timeline duration.
+    duration_ms = _duration_ms(len(audio))
 
     separation_started = time.perf_counter()
     stems = (separator or separate_stems)(audio, threads=threads, engine=engine)
